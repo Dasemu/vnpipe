@@ -13,27 +13,50 @@ screen vn_art_style_picker():
 
     modal True
 
-    add Solid("#000000")
+    add gui.main_menu_background
+    add Solid("#000000c8")
 
     vbox:
         xalign 0.5
-        yalign 0.5
-        spacing 30
+        yalign 0.45
+        spacing 24
 
-        text "@@ART_STYLE_TITLE@@" xalign 0.5 size 60
-        text "@@ART_STYLE_HINT@@" xalign 0.5 size 28
+        text "@@ART_STYLE_TITLE@@":
+            xalign 0.5
+            size gui.title_text_size
+            color gui.accent_color
 
-        null height 20
+        text "@@ART_STYLE_HINT@@":
+            xalign 0.5
+            size 30
+            italic True
+
+        null height 40
 
         for style_id, style_label in vn_art_styles:
             textbutton style_label:
+                style_prefix "vn_picker"
                 xalign 0.5
                 action [SetField(persistent, "art_style", style_id),
                     SetField(persistent, "art_style_chosen", True), Return()]
+
+style vn_picker_button is gui_button
+style vn_picker_button_text is gui_button_text
+
+style vn_picker_button:
+    xminimum 420
+    padding (30, 12)
+
+style vn_picker_button_text:
+    size 44
+    xalign 0.5
+    text_align 0.5
 
 ## Shown once, before the first scene, when there is a choice to make.
 label vn_pick_art_style:
     if len(vn_art_styles) > 1 and not persistent.art_style_chosen:
         scene black
+        $ quick_menu = False
         call screen vn_art_style_picker
+        $ quick_menu = True
     return

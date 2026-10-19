@@ -325,7 +325,8 @@ def collect_images(work: Work, manifest: dict[str, Any] | None) -> list[ImageEnt
             candidate = work.path("assets") / rel
             if style == default:
                 # the fallback may also be a placeholder; otherwise one is generated
-                ok = rendition and rendition["status"] in {"processed", "approved", "placeholder"}
+                # (a placeholder is always regenerated, without the asset id label)
+                ok = rendition and rendition["status"] in {"processed", "approved"}
                 variants.append((style, rel, candidate if ok and candidate.is_file() else None))
             elif usable_rendition(asset, style) and candidate.is_file():
                 variants.append((style, rel, candidate))
@@ -636,6 +637,7 @@ def render_script(work: Work, annotated: dict[str, Any], audio: Audio | None = N
         raise ValueError(f"cues refer to unknown line ids: {sorted(missing)}")
     out += [
         "label the_end:",
+        *(["    stop music fadeout 3.0"] if audio.files else []),
         "    scene black",
         "    with fade",
         "    show card_end at truecenter",
@@ -671,12 +673,21 @@ def _check_image(selected: bool, round_: bool) -> Image.Image:
     return img
 
 
+def _slot_image(border_alpha: int, fill_alpha: int) -> Image.Image:
+    """Save-slot frame (Ren'Py scales it with gui.slot_button_borders): thin outline plus tint."""
+    img = Image.new("RGBA", (48, 48), IVORY + (fill_alpha,))
+    ImageDraw.Draw(img).rectangle([0, 0, 47, 47], outline=ACCENT + (border_alpha,), width=2)
+    return img
+
+
 def gui_extra_images() -> dict[str, Image.Image]:
     """Deterministic simple GUI images, keyed by path relative to ``game/``."""
     base: dict[str, Image.Image] = {
         "button/background.png": _solid((24, 24), (0, 0, 0, 0)),
         "button/hover_background.png": _solid((24, 24), ACCENT + (60,)),
         "button/selected_background.png": _solid((24, 24), ACCENT + (35,)),
+        "button/slot_idle_background.png": _slot_image(110, 14),
+        "button/slot_hover_background.png": _slot_image(255, 40),
         "button/check_foreground.png": _check_image(False, False),
         "button/check_selected_foreground.png": _check_image(True, False),
         "button/radio_foreground.png": _check_image(False, True),
@@ -807,14 +818,15 @@ def title_cards(work: Work, annotated: dict[str, Any]) -> dict[str, tuple[str, s
 
 
 def render_card(heading: str, subtitle: str | None) -> str:
-    """A heading, plus a smaller italic line below it when the scene has a subtitle."""
-    props = "size=60, text_align=0.5"
+    """A spaced-out heading; with a subtitle, a thin gold rule and a smaller italic line below."""
+    props = "size=76, kerning=3, text_align=0.5, xmaximum=1600"
     if not subtitle:
         return f'Text("{escape_text(heading)}", {props})'
-    sub_props = 'size=30, italic=True, color="#c9a25b", text_align=0.5'
+    sub_props = 'size=34, italic=True, color="#c9a25b", text_align=0.5, xmaximum=1600'
     return (
         f'VBox(Text("{escape_text(heading)}", {props}, xalign=0.5), '
-        f'Text("{escape_text(subtitle)}", {sub_props}, xalign=0.5), spacing=28)'
+        'Solid("#c9a25b", xsize=200, ysize=2, xalign=0.5), '
+        f'Text("{escape_text(subtitle)}", {sub_props}, xalign=0.5), spacing=26)'
     )
 
 
@@ -903,7 +915,11 @@ def credits_sections(work: Work, manifest: dict[str, Any] | None) -> list[tuple[
         sections.append((ui["art"], [ui["art_with"].format(", ".join(sources))]))
     tracks = credit_tracks(work)
     if tracks:  # attributions are printed verbatim (CC BY-SA requires them)
-        sections.append((ui["music"], [t["attribution"] for t in tracks]))
+        lang = info.get("language", "es")
+        # `attribution_<language>` is the same credit translated, used when present
+        sections.append(
+            (ui["music"], [t.get(f"attribution_{lang}") or t["attribution"] for t in tracks])
+        )
     about_tail = ABOUT_LABELS.get(info.get("language", "es"), ABOUT_LABELS["en"])[2]
     sections.append(("vnpipe", [about_tail]))
     return [(title, [_markup(e) for e in entries]) for title, entries in sections]
@@ -1039,7 +1055,7 @@ def generate(
             if source:
                 shutil.copyfile(source, dest)
             else:
-                placeholder(e.asset).save(dest, "WEBP", quality=90)
+                placeholder(e.asset, label=False).save(dest, "WEBP", quality=90)
 
     return sorted(written)
 

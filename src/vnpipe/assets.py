@@ -317,8 +317,13 @@ def process_asset(work_root: Path, asset: dict[str, Any], style: str) -> None:
     rendition["status"] = "processed"
 
 
-def placeholder(asset: dict[str, Any], label_color: str = "#d8cfc0") -> Image.Image:
-    """Deterministic stand-in image so the game always runs."""
+def placeholder(
+    asset: dict[str, Any], label_color: str = "#d8cfc0", label: bool = True
+) -> Image.Image:
+    """Deterministic stand-in image so the game always runs.
+
+    ``label`` draws the asset id (for the art pipeline); the game ships it without, since
+    the id is an internal name the player should not see."""
     if asset["kind"] == "background":
         img = Image.new("RGB", BG_SIZE, "#1d1a17")
         draw = ImageDraw.Draw(img)
@@ -330,9 +335,10 @@ def placeholder(asset: dict[str, Any], label_color: str = "#d8cfc0") -> Image.Im
         draw = ImageDraw.Draw(img)
         draw.ellipse([170, 40, 330, 220], fill=(60, 52, 46, 230))
         draw.rounded_rectangle([110, 230, 390, SPRITE_HEIGHT], 60, fill=(60, 52, 46, 230))
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.load_default(size=40)
-    draw.text((30, 30), asset["id"], fill=label_color, font=font)
+    if label:
+        draw = ImageDraw.Draw(img)
+        font = ImageFont.load_default(size=40)
+        draw.text((30, 30), asset["id"], fill=label_color, font=font)
     return img
 
 
