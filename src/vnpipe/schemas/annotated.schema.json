@@ -167,7 +167,7 @@
             "direction",
             "cast"
           ],
-          "description": "verse = spoken/recited text line; direction = stage direction (parenthesised or italic setting text); cast = list of characters under a scene heading"
+          "description": "verse = spoken/recited text line (one paragraph in a prose scene); direction = stage direction (parenthesised or italic setting text); cast = list of characters under a scene heading"
         },
         "speaker": {
           "type": [
