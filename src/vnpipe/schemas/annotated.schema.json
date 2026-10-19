@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "vnpipe/annotated.schema.json",
   "title": "Annotated play",
-  "description": "Output of `vnpipe annotate merge`: parsed lines plus one annotation each. The `ann` and line definitions duplicate annotation.schema.json and parsed.schema.json (schema.py has no cross-file registry); tests/test_annotation_schema.py guards against drift.",
+  "description": "Output of `vnpipe annotate merge`: parsed lines plus one annotation each. The line definition duplicates parsed.schema.json (schema.py has no cross-file registry) and the ann enums mirror annotate.py; tests/test_annotation_schema.py guards against drift.",
   "type": "object",
   "required": [
     "work",
@@ -24,7 +24,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Chunks filled with deterministic fallback annotations instead of LLM output"
+      "description": "Chunks filled with deterministic fallback annotations (neutral emotion, no sprite entrances beyond speakers) because they have no valid LLM output"
     },
     "scenes": {
       "type": "array",

@@ -9,9 +9,9 @@ no code changes.
 Gutenberg .txt ──fetch──▶ data/raw/            (cached, gitignored)
               ──parse──▶ data/play.txt         (header/footer stripped, scope cut)
                          data/parsed.json      (scenes, speakers, verse lines, directions)
-              ──chunk──▶ annotations/chunks/*.json   (LLM work units)
-   LLM sub-agents ─────▶ annotations/cache/*.json    (one file per chunk, keyed by hash)
-              ──merge──▶ data/annotated.json   (schema-validated, complete)
+              ──chunks──▶ rendered text (LLM work units)
+     runner (Haiku) ─────▶ annotations/cache/*.txt     (records per chunk, keyed by hash)
+              ──merge──▶ data/annotated.json   (expanded and schema-validated)
 art (any generator) ──▶ assets/assets.json + images (manifest, sha256, status)
               ──renpy──▶ vn/                   (generated Ren'Py project)
 ```
@@ -26,7 +26,7 @@ redone unless their input changes.
 | Stage | Commands | Module |
 |---|---|---|
 | Text | `fetch`, `parse` | `text.py` |
-| Annotation | `annotate chunk/status/prompt/merge` ([details](annotation.md)) | `annotate.py` |
+| Annotation | `annotate run/status/prompt/merge` ([details](annotation.md)) | `annotate.py` |
 | Assets | `assets prompt/import/process/check/status/placeholders/sheet/migrate` | `assets.py` |
 | Ren'Py | `renpy [--from-parsed] [--with-test] [--out DIR]` | `renpy_gen.py` |
 
@@ -37,8 +37,8 @@ redone unless their input changes.
 | Path | Purpose |
 |---|---|
 | `src/vnpipe/` | Work-agnostic pipeline code |
-| `src/vnpipe/schemas/` | JSON Schemas: parsed text, annotation, annotated text, asset manifest |
-| `src/vnpipe/prompts/annotate.md` | Annotator instructions (its hash versions the cache) |
+| `src/vnpipe/schemas/` | JSON Schemas: parsed text, annotated text, asset manifest |
+| `src/vnpipe/prompts/annotate.md` | Annotator instructions and vocabularies (its hash versions the cache) |
 | `src/vnpipe/renpy_templates/` | Default Ren'Py GUI, screens and fonts |
 | `tests/` | Unit tests on `tests/fixtures/` (a mini work); the Ren'Py SDK tests need `RENPY_SDK` |
 
