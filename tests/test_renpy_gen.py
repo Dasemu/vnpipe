@@ -162,11 +162,11 @@ def test_characters_and_images(project):
     nameless_nvl = next(ln for ln in chars.split("\n") if ln.startswith("define c_poet_voice_nvl"))
     assert "None" in nameless_nvl and "nvl_thought" in nameless_nvl
     images = (project / "game/images.rpy").read_text(encoding="utf-8")
-    assert 'image bg dedication = "images/bg/dedication.webp"' in images
-    assert 'image director pleased = "images/sprites/director_pleased.webp"' in images
-    assert (project / "game/images/sprites/poet_indignant.webp").is_file()
-    assert (project / "game/images/bg/theatre.webp").is_file()
-    assert not (project / "game/images/sprites/lord_neutral.webp").exists()
+    assert 'image bg dedication = "images/bg/default/dedication.webp"' in images
+    assert 'image director pleased = "images/sprites/default/director_pleased.webp"' in images
+    assert (project / "game/images/sprites/default/poet_indignant.webp").is_file()
+    assert (project / "game/images/bg/default/theatre.webp").is_file()
+    assert not (project / "game/images/sprites/default/lord_neutral.webp").exists()
 
 
 def test_title_card_images(project):

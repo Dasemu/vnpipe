@@ -756,6 +756,14 @@ screen preferences():
                     textbutton _("After Choices") action Preference("after choices", "toggle")
                     textbutton _("Transitions") action InvertSelected(Preference("transitions", "toggle"))
 
+                if len(vn_art_styles) > 1:
+
+                    vbox:
+                        style_prefix "radio"
+                        label "@@ART_STYLE_TITLE@@"
+                        for style_id, style_label in vn_art_styles:
+                            textbutton style_label action SetField(persistent, "art_style", style_id)
+
                 ## Additional vboxes of type "radio_pref" or "check_pref" can be
                 ## added here, to add additional creator-defined preferences.
 
