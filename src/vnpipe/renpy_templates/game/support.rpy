@@ -36,3 +36,13 @@ init python:
         "fonts/RobotoSlab-Bold.ttf", False, False)
 
 define vn_move = MoveTransition(0.8)
+
+## Click-to-continue indicator: a blinking arrow at the end of the text (every Character
+## uses it, see characters.rpy).
+transform vn_ctc_blink:
+    alpha 1.0
+    linear 0.7 alpha 0.2
+    linear 0.7 alpha 1.0
+    repeat
+
+image vn_ctc = At(Text("▾", font="DejaVuSans.ttf", size=34, color="#c9a25b"), vn_ctc_blink)
