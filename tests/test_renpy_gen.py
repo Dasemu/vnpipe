@@ -194,7 +194,7 @@ def test_music_only_when_audio_exists(work, annotated, tmp_path):
     (out / "game/audio/sacred.ogg").write_bytes(b"OggS")
     renpy_gen.generate(work, annotated, out)
     text = (out / "game/script.rpy").read_text(encoding="utf-8")
-    assert 'play music "audio/sacred.ogg" fadeout 1.0 fadein 1.0' in text
+    assert 'play music "audio/sacred.ogg" fadeout 1.0 fadein 1.0 if_changed' in text
     assert "stop music fadeout 1.0" in text  # mood "none" on the Lord's first line
     assert (out / "game/audio/sacred.ogg").is_file()  # regeneration keeps user audio
 
@@ -203,14 +203,14 @@ def test_unknown_cue_target_fails(work, annotated):
     broken = json.loads(json.dumps(annotated))
     broken["scenes"][1]["lines"] = broken["scenes"][1]["lines"][:5]
     with pytest.raises(ValueError, match="unknown line ids"):
-        renpy_gen.render_script(work, broken, set())
+        renpy_gen.render_script(work, broken)
 
 
 def test_unknown_speaker_fails(work, annotated):
     broken = json.loads(json.dumps(annotated))
     broken["scenes"][1]["lines"][1]["ann"]["speaker"] = "ghost"
     with pytest.raises(ValueError, match="ghost"):
-        renpy_gen.render_script(work, broken, set())
+        renpy_gen.render_script(work, broken)
 
 
 def tree(root: Path) -> dict[str, bytes]:
@@ -252,7 +252,7 @@ def test_pinned_cast(work, annotated):
     data = json.loads(json.dumps(work.data))
     data["staging"]["talk"]["cast"] = {"poet": "left", "director": "center"}
     pinned = type(work)(root=work.root, data=data)
-    block = scene_block(renpy_gen.render_script(pinned, annotated, set()), "talk")
+    block = scene_block(renpy_gen.render_script(pinned, annotated), "talk")
     first_box = block.index("# talk_0002 .. talk_0005")
     assert "show poet neutral at vn_left" in block[first_box:]
     assert any(ln.startswith("show director") and ln.endswith("vn_center") for ln in block)
@@ -263,7 +263,7 @@ def test_stage_direction_keeps_on_stage(work, annotated):
     ann = json.loads(json.dumps(annotated))
     direction = next(ln for ln in ann["scenes"][1]["lines"] if ln["id"] == "talk_0010")
     direction["ann"]["on_stage"] = []
-    block = scene_block(renpy_gen.render_script(work, ann, set()), "talk")
+    block = scene_block(renpy_gen.render_script(work, ann), "talk")
     i = block.index('c_narrator "Se aleja."')
     assert not any(ln.startswith("hide ") for ln in block[i - 3 : i])
 
@@ -272,22 +272,20 @@ def test_cue_move(work, annotated):
     data = json.loads(json.dumps(work.data))
     data["cues"][0]["move"] = {"poet": "left"}
     moved = type(work)(root=work.root, data=data)
-    block = scene_block(renpy_gen.render_script(moved, annotated, set()), "talk")
+    block = scene_block(renpy_gen.render_script(moved, annotated), "talk")
     # sprites are hidden by that cue's hide_all, so nothing to slide; position is updated
     assert "with vn_move" not in block
     data["cues"][0].pop("hide_all")
     data["cues"][0]["move"] = {"poet": "left"}
     moved = type(work)(root=work.root, data=data)
-    block = scene_block(renpy_gen.render_script(moved, annotated, set()), "talk")
+    block = scene_block(renpy_gen.render_script(moved, annotated), "talk")
     i = block.index("with vn_move")
     assert block[i - 1].startswith("show poet ") and block[i - 1].endswith("vn_left")
 
 
 def test_overrides(work, annotated):
     ov = [{"from": "talk_0011", "to": "talk_0013", "emotion": "angry"}]
-    block = scene_block(
-        renpy_gen.render_script(_with_cfg(work, overrides=ov), annotated, set()), "talk"
-    )
+    block = scene_block(renpy_gen.render_script(_with_cfg(work, overrides=ov), annotated), "talk")
     assert "show poet indignant at vn_right" in block[block.index("# talk_0011 .. talk_0013") :]
 
 
@@ -302,22 +300,22 @@ def test_overrides(work, annotated):
 )
 def test_invalid_overrides(work, annotated, change, match):
     with pytest.raises(ValueError, match=match):
-        renpy_gen.render_script(_with_cfg(work, **change), annotated, set())
+        renpy_gen.render_script(_with_cfg(work, **change), annotated)
 
 
 def test_invalid_staging_cast_and_move(work, annotated):
     data = json.loads(json.dumps(work.data))
     data["staging"]["talk"]["cast"] = {"ghost": "left"}
     with pytest.raises(ValueError, match="ghost"):
-        renpy_gen.render_script(type(work)(root=work.root, data=data), annotated, set())
+        renpy_gen.render_script(type(work)(root=work.root, data=data), annotated)
     data = json.loads(json.dumps(work.data))
     data["staging"]["talk"]["cast"] = {"poet": "up"}
     with pytest.raises(ValueError, match="position"):
-        renpy_gen.render_script(type(work)(root=work.root, data=data), annotated, set())
+        renpy_gen.render_script(type(work)(root=work.root, data=data), annotated)
     data = json.loads(json.dumps(work.data))
     data["cues"][0]["move"] = {"poet": "nowhere"}
     with pytest.raises(ValueError, match="position"):
-        renpy_gen.render_script(type(work)(root=work.root, data=data), annotated, set())
+        renpy_gen.render_script(type(work)(root=work.root, data=data), annotated)
 
 
 def test_every_gui_image_exists(project):
@@ -391,3 +389,80 @@ def test_cli_defaults_to_current_directory(work, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path / "w")
     assert cli.main(["renpy"]) == 0
     assert (tmp_path / "w/vn/game/script.rpy").is_file()
+
+
+def _audio():
+    files = [
+        "audio/sacred/a.ogg",
+        "audio/sacred/b.ogg",
+        "audio/comic.ogg",
+        "audio/scenes/x.ogg",
+    ]
+    return renpy_gen.Audio(
+        {"sacred": files[:2], "comic": [files[2]], "scenes": [files[3]]}, frozenset(files)
+    )
+
+
+def _music_lines(block):
+    return [ln for ln in block if "music" in ln]
+
+
+def test_scan_and_copy_audio(work, tmp_path):
+    root = tmp_path / "w"
+    (root / "audio/sacred").mkdir(parents=True)
+    (root / "audio/scenes").mkdir()
+    for rel in ("sacred/b.ogg", "sacred/a.ogg", "scenes/x.ogg", "comic.ogg"):
+        (root / "audio" / rel).write_bytes(b"OggS")
+    (root / "audio/credits.toml").write_text("", encoding="utf-8")
+    out = tmp_path / "out"
+    copied = renpy_gen.copy_audio(type(work)(root=root, data=work.data), out)
+    assert len(copied) == 4 and not (out / "game/audio/credits.toml").exists()
+    audio = renpy_gen.scan_audio(out)
+    assert audio.moods["sacred"] == ["audio/sacred/a.ogg", "audio/sacred/b.ogg"]  # sorted
+    assert audio.moods["comic"] == ["audio/comic.ogg"]
+    assert "audio/scenes/x.ogg" in audio.files
+
+
+def test_mood_directory_is_a_playlist(work, annotated):
+    block = scene_block(renpy_gen.render_script(work, annotated, _audio()), "lyric")
+    assert _music_lines(block) == [
+        'play music ["audio/sacred/a.ogg", "audio/sacred/b.ogg"] fadeout 1.0 fadein 1.0 if_changed'
+    ]
+
+
+def test_scene_music_override_and_no_restart(work, annotated):
+    # the scene override ignores annotation moods (here a stop on talk_0014)
+    w = _with_cfg(
+        work, staging={**work.data["staging"], "talk": {"bg": "bg_theatre", "mode": "adv"}}
+    )
+    w.data["staging"]["talk"]["music"] = "track:scenes/x.ogg"
+    block = scene_block(renpy_gen.render_script(w, annotated, _audio()), "talk")
+    assert _music_lines(block) == [
+        'play music "audio/scenes/x.ogg" fadeout 1.0 fadein 1.0 if_changed'
+    ]  # once, not at every box
+
+
+def test_cue_music_and_auto(work, annotated):
+    cues = [{"at": "talk_0004", "music": "comic"}, {"at": "talk_0014", "music": "auto"}]
+    w = _with_cfg(work, cues=cues)
+    block = scene_block(renpy_gen.render_script(w, annotated, _audio()), "talk")
+    music = _music_lines(block)
+    # comic from talk_0004 on, until `auto` hands control back to the annotation (stop at 0014)
+    assert music == [
+        'play music "audio/comic.ogg" fadeout 1.0 fadein 1.0 if_changed',
+        "stop music fadeout 1.0",
+    ]
+    box = next(i for i, ln in enumerate(block) if ln.startswith("#") and "talk_0014" in ln)
+    assert block.index(music[0]) < box < block.index(music[1])
+
+
+def test_music_config_errors(work, annotated):
+    w = _with_cfg(work, cues=[{"at": "talk_0004", "music": "track:nope.ogg"}])
+    with pytest.raises(ValueError, match="not found"):
+        renpy_gen.render_script(w, annotated, _audio())
+    w = _with_cfg(work, staging={"talk": {"music": "auto"}})
+    with pytest.raises(ValueError, match="only valid in a cue"):
+        renpy_gen.render_script(w, annotated, _audio())
+    w = _with_cfg(work, staging={"talk": {"music": "loud"}})
+    with pytest.raises(ValueError, match="no audio for music mood"):
+        renpy_gen.render_script(w, annotated, _audio())

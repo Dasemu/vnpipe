@@ -46,7 +46,7 @@ define build.name = "@@BUILD_NAME@@"
 ## appropriate mixer.
 
 define config.has_sound = False
-define config.has_music = False
+define config.has_music = True
 define config.has_voice = True
 
 

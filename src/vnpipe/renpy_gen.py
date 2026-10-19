@@ -54,6 +54,9 @@ TINTS = ("none", "dark", "red")
 DEFAULT_LYRIC_VOICE = "poet_voice"
 DEFAULT_END_TEXT = "Continuará…"
 MENU_BG_FALLBACK = "gui/main_menu.png"
+MUSIC_FADE = "fadeout 1.0 fadein 1.0"
+UNKNOWN_MUSIC = "?"  # what plays is not known statically (start of a scene: it may be entered
+# from the main menu), so the first music statement of every scene is always emitted
 
 ABOUT_LABELS = {
     "es": ("Texto", "Traducción", "Adaptación a novela visual generada con vnpipe."),
@@ -97,6 +100,55 @@ def char_var(cast_id: str, nvl: bool = False) -> str:
 def bg_image_name(asset_id: str) -> str:
     """``bg_heaven_lord`` -> ``bg heaven_lord`` (tag ``bg``, attribute ``heaven_lord``)."""
     return "bg " + asset_id.removeprefix("bg_")
+
+
+# --- audio ----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Audio:
+    """The OGG files shipped in ``game/audio/``, as paths relative to ``game/``."""
+
+    moods: dict[str, list[str]] = field(default_factory=dict)  # mood -> tracks (sorted)
+    files: frozenset[str] = frozenset()
+
+
+def scan_audio(out: Path) -> Audio:
+    """``audio/<mood>/*.ogg`` is a mood playlist; ``audio/<mood>.ogg`` a one-track mood."""
+    game = out / "game"
+    root = game / "audio"
+    if not root.is_dir():
+        return Audio()
+    paths = sorted(p.relative_to(game).as_posix() for p in root.rglob("*.ogg"))
+    moods: dict[str, list[str]] = {}
+    for rel in paths:
+        parts = rel.split("/")[1:]
+        mood = parts[0] if len(parts) > 1 else Path(parts[0]).stem
+        moods.setdefault(mood, []).append(rel)
+    return Audio(moods, frozenset(paths))
+
+
+def copy_audio(work: Work, out: Path) -> list[Path]:
+    """Copy ``<work>/audio/**/*.ogg`` into ``game/audio/`` keeping subdirectories."""
+    src_root = work.path("audio")
+    if not src_root.is_dir():
+        return []  # no work audio: leave whatever the project already holds
+    dest_root = out / "game" / "audio"
+    shutil.rmtree(dest_root, ignore_errors=True)
+    written = []
+    for src in sorted(src_root.rglob("*.ogg")):
+        dest = dest_root / src.relative_to(src_root)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        written.append(dest)
+    return written
+
+
+def check_music_spec(spec: Any, where: str, allow_auto: bool) -> None:
+    if not isinstance(spec, str) or not spec or spec == "track:":
+        raise ValueError(f"{where}: music must be a mood, 'track:<path>' or 'none'")
+    if spec == "auto" and not allow_auto:
+        raise ValueError(f"{where}: music 'auto' is only valid in a cue")
 
 
 # --- annotations ----------------------------------------------------------------
@@ -241,6 +293,10 @@ class Box:
     is_direction: bool = False
 
 
+def _playlist(files: list[str]) -> str:
+    return "[" + ", ".join(_plain_quote(f) for f in files) + "]"
+
+
 def _is_direction(line: dict[str, Any]) -> bool:
     return line["kind"] == "direction" or line["ann"]["kind"] == "stage_direction"
 
@@ -249,18 +305,23 @@ class SceneWriter:
     """Turns one scene's lines into Ren'Py statements, tracking staging state."""
 
     def __init__(
-        self, work: Work, scene: dict[str, Any], moods: set[str], music_state: dict[str, str | None]
+        self, work: Work, scene: dict[str, Any], audio: Audio, music_state: dict[str, str | None]
     ):
         self.work = work
         self.scene = scene
-        self.moods = moods
+        self.audio = audio
         self.voice = lyric_voice(work)
         self.cues = {c["at"]: c for c in work.data.get("cues", [])}
         staging = work.data.get("staging", {}).get(scene["id"], {})
         self.mode: str = staging.get("mode", "adv")
         self.bg: str | None = staging.get("bg")
         self.tint = "none"
-        self.music_state = music_state  # {'playing': mood}, shared across scenes
+        self.music_state = music_state  # {'playing': key}, shared across scenes
+        music_state["playing"] = UNKNOWN_MUSIC
+        # scene-wide or cue-set music; None = follow the annotation moods
+        self.music_spec: str | None = staging.get("music")
+        if self.music_spec == "auto":
+            self.music_spec = None
         self.shown: dict[str, str] = {}  # character -> expression currently shown
         self.pinned: dict[str, str] = dict(staging.get("cast", {}))  # always on stage in ADV
         self.positions: dict[str, str] = dict(self.pinned)  # character -> position in this scene
@@ -304,6 +365,8 @@ class SceneWriter:
             if transition not in TRANSITIONS:
                 raise ValueError(f"cue at {cue['at']}: unknown transition {transition!r}")
             self.emit(f"with {TRANSITIONS[transition]}")
+        if "music" in cue:
+            self.music_spec = None if cue["music"] == "auto" else cue["music"]
         if cue.get("shake"):
             self.emit("show layer master at vn_shake")
         moved = False
@@ -358,7 +421,7 @@ class SceneWriter:
         first, last = box.lines[0], box.lines[-1]
         ids = first["id"] if first is last else f"{first['id']} .. {last['id']}"
         self.emit(f"# {ids}")
-        self.music(first["ann"].get("music"))
+        self.music(self.music_spec or first["ann"].get("music"))
         if self.mode == "adv":
             self.stage(box)
         text = "\\n".join(escape_text(line["text"]) for line in box.lines)
@@ -367,16 +430,32 @@ class SceneWriter:
         if self.mode == "nvl":
             self.emit("nvl clear")
 
-    def music(self, mood: str | None) -> None:
-        if mood is None:
+    def music(self, spec: str | None) -> None:
+        """Play/stop for a mood, ``track:<path>`` or ``none``; never restarts what already plays."""
+        if spec is None:
             return
-        if mood == "none":
-            if self.music_state["playing"]:
+        if spec == "none":
+            if self.music_state["playing"] is not None:
                 self.emit("stop music fadeout 1.0")
                 self.music_state["playing"] = None
-        elif mood in self.moods and self.music_state["playing"] != mood:
-            self.emit(f'play music "audio/{mood}.ogg" fadeout 1.0 fadein 1.0')
-            self.music_state["playing"] = mood
+            return
+        if spec.startswith("track:"):
+            rel = "audio/" + spec.removeprefix("track:")
+            if rel not in self.audio.files:
+                raise ValueError(f"{self.scene['id']}: music track {rel!r} not found in audio/")
+            files = [rel]
+        else:
+            files = self.audio.moods.get(spec, [])
+            if not files:
+                if self.audio.moods and (self.music_spec == spec):
+                    raise ValueError(f"{self.scene['id']}: no audio for music mood {spec!r}")
+                return  # annotation mood without audio: keep what plays
+        if self.music_state["playing"] == spec:
+            return
+        target = _plain_quote(files[0]) if len(files) == 1 else _playlist(files)
+        # if_changed: no restart if the engine already plays it (e.g. entered via scene select)
+        self.emit(f"play music {target} {MUSIC_FADE} if_changed")
+        self.music_state["playing"] = spec
 
     # -- sprites ---------------------------------------------------------------------
 
@@ -449,7 +528,11 @@ def validate_staging(work: Work, annotated: dict[str, Any]) -> None:
                 raise ValueError(f"[staging.{sid}].cast: unknown character {cid!r}")
             if pos not in VALID_POSITIONS:
                 raise ValueError(f"[staging.{sid}].cast: unknown position {pos!r}")
+        if "music" in cfg:
+            check_music_spec(cfg["music"], f"[staging.{sid}]", allow_auto=False)
     for cue in work.data.get("cues", []):
+        if "music" in cue:
+            check_music_spec(cue["music"], f"cue at {cue['at']}", allow_auto=True)
         for cid, pos in cue.get("move", {}).items():
             if cid not in cast:
                 raise ValueError(f"cue at {cue['at']}: move of unknown character {cid!r}")
@@ -477,7 +560,7 @@ def apply_overrides(work: Work, annotated: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def render_script(work: Work, annotated: dict[str, Any], moods: set[str]) -> str:
+def render_script(work: Work, annotated: dict[str, Any], audio: Audio | None = None) -> str:
     validate_staging(work, annotated)
     annotated = apply_overrides(work, annotated)
     out = [
@@ -490,9 +573,10 @@ def render_script(work: Work, annotated: dict[str, Any], moods: set[str]) -> str
     ]
     known = {c["at"] for c in work.data.get("cues", [])}
     seen: set[str] = set()
-    music_state: dict[str, str | None] = {"playing": None}
+    audio = audio or Audio()
+    music_state: dict[str, str | None] = {"playing": UNKNOWN_MUSIC}
     for scene in annotated["scenes"]:
-        out.extend(SceneWriter(work, scene, moods, music_state).render())
+        out.extend(SceneWriter(work, scene, audio, music_state).render())
         seen |= {line["id"] for line in scene["lines"]}
     missing = known - seen
     if missing:
@@ -700,11 +784,6 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
-def _audio_moods(out: Path) -> set[str]:
-    audio = out / "game" / "audio"
-    return {p.stem for p in audio.glob("*.ogg")} if audio.is_dir() else set()
-
-
 def generate(
     work: Work, annotated: dict[str, Any], out: Path, with_test: bool = False
 ) -> list[Path]:
@@ -758,6 +837,7 @@ def generate(
         if not dest.exists():  # never override an image shipped by the template
             img.save(dest, "PNG")
             written.append(dest)
+    written.extend(copy_audio(work, out))
     test_file = game / E2E_FILE
     test_file.unlink(missing_ok=True)
     if with_test:
@@ -766,7 +846,7 @@ def generate(
     for name, text in (
         ("characters.rpy", render_characters(work)),
         ("images.rpy", render_images(entries, title_cards(work, annotated))),
-        ("script.rpy", render_script(work, annotated, _audio_moods(out))),
+        ("script.rpy", render_script(work, annotated, scan_audio(out))),
     ):
         write_text(game / name, text)
         written.append(game / name)

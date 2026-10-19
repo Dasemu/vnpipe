@@ -13,8 +13,8 @@ A work is a directory containing `work.toml`, plus the folders the pipeline fill
 | `[[scenes]]` | `heading` (as printed), `id`, `location`, `time_of_day`, optional `occurrence` and `format` (below). |
 | `[parser]` | `direction_headings`: whole lines in capitals that are stage directions or section titles (`"ENTRA FAUSTO"`), not speakers. Each becomes a `direction` line once the scene's first speech has started (before it, the line is treated as cast/setting). |
 | `[cast.<id>]` | `name` (shown in the dialogue box), `color`, `sprite` (default `true`; `false` = never drawn), `expressions` (annotation emotion → sprite expression; needs `neutral`). |
-| `[staging.<scene id>]` | `bg` (background shown after the title card), `mode` (`adv` or `nvl`), `cast = { <char> = "left\|center\|right" }` pins sprite characters for the whole scene. |
-| `[[cues]]` | `at` (line id; fires right before it) plus any of `bg`, `transition` (`dissolve`, `fade`, `flash`, `slow`), `tint` (`none`, `dark`, `red`), `mode`, `hide_all`, `shake`, `move = { <char> = "<pos>" }`. |
+| `[staging.<scene id>]` | `bg` (background shown after the title card), `mode` (`adv` or `nvl`), `cast = { <char> = "left\|center\|right" }` pins sprite characters for the whole scene, `music` (see Audio; ignores the annotation moods for this scene). |
+| `[[cues]]` | `at` (line id; fires right before it) plus any of `bg`, `transition` (`dissolve`, `fade`, `flash`, `slow`), `tint` (`none`, `dark`, `red`), `mode`, `hide_all`, `shake`, `move = { <char> = "<pos>" }`, `music` (see Audio; applies from that line until the next cue or the scene end). |
 | `[[overrides]]` | `from`, `to` (inclusive line ids in one scene), `emotion`: forces the emotion before expression mapping. |
 
 ### Text structure
@@ -48,3 +48,19 @@ Asset ids (`bg_*`, sprite names) and the art styles (`styles`, `default_style`, 
 label and prompts) are defined in the work's `assets/assets.json` (manifest v2, see
 [running.md](running.md)); a missing image is replaced by a placeholder. Style names and
 labels are work data: nothing about them is hard-coded in the pipeline.
+
+### Audio
+
+`vnpipe renpy` copies `<work>/audio/**/*.ogg` into `game/audio/` (subdirectories kept; other
+files such as `credits.toml` are not copied). Music is chosen per line from the annotation
+mood (`ann.music`), unless overridden:
+
+- `audio/<mood>/*.ogg`: the mood plays its tracks as a looping playlist (sorted by path).
+  A lone `audio/<mood>.ogg` is a one-track mood. A mood without audio keeps what plays.
+- `[staging.<scene>].music` and the cue key `music` take `"<mood>"`, `"track:<path under
+  audio/>"` (a single looping file, e.g. `track:scenes/x.ogg`) or `"none"` (silence).
+  A scene override replaces the annotation moods for that scene; a cue switches from its line on.
+  `"auto"` (cues only) hands control back to the annotation moods.
+- A track that is already playing is never restarted (`if_changed`); the first music statement
+  of each scene is always emitted so a scene entered from the scene select has music.
+- Unknown `track:` paths, and moods with no audio when the work has audio, are errors.
