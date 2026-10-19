@@ -4,14 +4,49 @@
   "title": "Asset manifest",
   "type": "object",
   "required": [
-    "base_prompt",
-    "templates",
+    "default_style",
+    "styles",
     "assets"
   ],
   "additionalProperties": false,
   "properties": {
-    "base_prompt": {
+    "default_style": {
       "type": "string"
+    },
+    "styles": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "label",
+          "base_prompt",
+          "templates"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Player-facing name of the style"
+          },
+          "base_prompt": {
+            "type": "string"
+          },
+          "templates": {
+            "type": "object",
+            "required": [
+              "background",
+              "sprite",
+              "variant"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Kind-specific prompt templates appended after base_prompt"
+          }
+        }
+      },
+      "description": "Art styles keyed by style id"
     },
     "assets": {
       "type": "array",
@@ -21,10 +56,7 @@
           "id",
           "kind",
           "prompt",
-          "source",
-          "file",
-          "sha256",
-          "status"
+          "renditions"
         ],
         "additionalProperties": false,
         "properties": {
@@ -47,21 +79,7 @@
           },
           "prompt": {
             "type": "string",
-            "description": "Asset-specific prompt; the full prompt sent is base_prompt + kind prompt + this"
-          },
-          "source": {
-            "enum": [
-              "chatgpt-web",
-              "zenvairo-media",
-              "placeholder",
-              "manual"
-            ]
-          },
-          "generation_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "description": "Asset-specific prompt; the full prompt sent is the style's base_prompt + kind template + this"
           },
           "reference": {
             "type": [
@@ -70,51 +88,67 @@
             ],
             "description": "Asset id used as reference image (identity consistency)"
           },
-          "raw_file": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Original generated image, relative to the work's assets dir"
-          },
-          "file": {
-            "type": "string",
-            "description": "Final processed image used by the game, relative to the work's assets dir"
-          },
-          "sha256": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^[0-9a-f]{64}$"
-          },
-          "status": {
-            "enum": [
-              "planned",
-              "generated",
-              "processed",
-              "approved",
-              "rejected",
-              "placeholder"
-            ]
-          },
-          "notes": {
-            "type": "string"
+          "renditions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "file",
+                "status"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "enum": [
+                    "chatgpt-web",
+                    "zenvairo-media",
+                    "placeholder",
+                    "manual"
+                  ]
+                },
+                "generation_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "raw_file": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Original generated image, relative to the work's assets dir"
+                },
+                "file": {
+                  "type": "string",
+                  "description": "Final processed image used by the game, relative to the work's assets dir"
+                },
+                "sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "status": {
+                  "enum": [
+                    "planned",
+                    "generated",
+                    "processed",
+                    "approved",
+                    "rejected",
+                    "placeholder"
+                  ]
+                },
+                "notes": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "One image per art style, keyed by style id"
           }
         }
       }
-    },
-    "templates": {
-      "type": "object",
-      "required": [
-        "background",
-        "sprite",
-        "variant"
-      ],
-      "additionalProperties": {
-        "type": "string"
-      },
-      "description": "Kind-specific prompt templates appended after base_prompt"
     }
   }
 }
