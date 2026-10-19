@@ -14,7 +14,7 @@ Works (texts) live in their own repos, e.g. `../Faust-VN`.
 ## Commands
 - `uv sync` — install. `uv run pytest` — tests. `uv run ruff check . && uv run ruff format --check .` — lint.
 - `uv run vnpipe --help` — CLI (`--work` defaults to the current directory). Stages: `fetch`,
-  `parse`, `annotate {chunk,status,prompt,merge}`, `assets {...}`, `renpy [--with-test]`
+  `parse`, `annotate {run,status,prompt,merge}`, `assets {...}`, `renpy [--with-test]`
   (default output `<work>/vn`).
 - Ren'Py SDK: set `RENPY_SDK` to the unpacked SDK directory (tests that need it are skipped
   otherwise; fallback `tools/renpy-sdk`). See `docs/running.md`.

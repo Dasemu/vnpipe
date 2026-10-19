@@ -1,70 +1,115 @@
 # Annotation stage
 
-Turns `data/parsed.json` into `data/annotated.json`: every parsed line gets an `ann` block
-(emotion, who is on stage and where, music). Judgement calls are made by LLM sub-agents;
-`vnpipe annotate` only prepares their input, checks their output and merges it.
+Turns `data/parsed.json` into `data/annotated.json` (every line gets an `ann` block: speaker,
+kind, emotion, location, time of day, who is on stage and where, music). Most of it is
+deterministic; a cheap LLM (Haiku) decides only what needs judgement and answers in a few
+short records per speech.
 
 ```
-parsed.json ──chunk──▶ annotations/chunks/<chunk_id>.json   (annotator input)
-  sub-agent ──────────▶ annotations/cache/<chunk_id>.json   (annotator output)
-              ──merge──▶ data/annotated.json
+parsed.json ──chunks──▶ rendered text ──runner──▶ annotations/cache/<chunk>.txt
+                                      ──merge───▶ data/annotated.json
 ```
 
-## Chunks
+| Decided by | Fields |
+|---|---|
+| Code, from `parsed.json` + `work.toml` | `speaker` (verse with speaker: that speaker; unattributed verse: `[work].lyric_voice`; directions and cast lists: `narrator`), `kind` (`dialogue`/`narration`/`stage_direction`), `location`, `time_of_day` (scene config), stage positions |
+| LLM | emotion per speech (and changes inside long speeches), music mood changes, entrances/exits of sprite characters |
 
-- Id `<scene_id>_cNN`. A chunk never crosses a scene and holds at most 60 lines. Splits
-  prefer speech boundaries, then stanza boundaries, and only then cut mid-stanza.
-- `input_sha256` is the SHA-256 of the canonical JSON of the chunk without that field. It
-  includes `prompt_version` (SHA-256 of `src/vnpipe/prompts/annotate.md`), so editing the
-  prompt, the text, `work.toml` scenes/cast or the schema enums invalidates the cache.
-- Contents: `scene`, `allowed` (speakers, characters, locations, emotions, positions,
-  music), `context_before` (up to 6 preceding lines, read-only) and `lines`, each with a
-  `defaults` block that is deterministic and must be copied verbatim:
-  - verse with a speaker: `dialogue` / that speaker;
-  - verse without speaker: `narration` / `[work].lyric_voice` from `work.toml`;
-  - direction and cast list: `stage_direction` / `narrator`;
-  - `location` and `time_of_day` from the scene config.
-- `allowed.characters` are the cast ids except `narrator` and the lyric voice. Cast members
-  with `sprite = false` are valid on stage; the Ren'Py generator filters them.
+## Chunks and input
 
-## Cache
+A chunk is whole speeches, at most 300 lines, never crossing a scene (a scene over the limit
+splits on speech, then stanza, boundaries). Ids are `<scene>_cNN`. The input is rendered
+compactly (numbers are the 4-digit line index in the scene id, `S` the speech index):
 
-One file per chunk, `annotation.schema.json`: `chunk_id`, `input_sha256` (copied from the
-chunk) and `annotations` (one per line, in order). Cache files are never deleted by the
-tool; a cache whose hash no longer matches is simply `stale` and gets redone.
+```
+SCENE noche "DE NOCHE" | study | night | sprite cast: faust (Fausto), wagner (Wagner) | on stage at start: faust* | part 1/2
+(D0001 En un aposento gótico ...)
+[S0 FAUSTO]
+0002 Filosofía, ¡ay, Dios!, Jurisprudencia,
+```
+
+"Sprite cast" is the sprite characters who speak in the scene plus the pinned ones. "On stage
+at start" is the pinned cast (`*`, from `[staging.<scene>].cast`) plus the sprite characters
+who spoke in earlier chunks of the scene; it is computed from the text, not from the model's
+earlier answers, so chunks are independent and can run in parallel. The system prompt
+(`src/vnpipe/prompts/annotate.md`) holds the format and the emotion/music vocabularies with
+guidance.
+
+## Output records
+
+Plain text, one record per line, parsed strictly:
+
+| Record | Meaning |
+|---|---|
+| `S <speech> <emotion>` | Required for every speech with verse in the chunk |
+| `L <line> <emotion>` | Emotion changes from that spoken line on, inside its speech |
+| `M <line> <music>` | Music from that line on. The first record must be an `M` between the chunk's first line and its first spoken line; it also covers the lines before it |
+| `E <line> +id -id ...` | Sprite characters entering/leaving at that line (ids from the sprite cast) |
+
+Emotions: neutral, joyful, melancholic, solemn, ironic, angry, fearful, ecstatic. Music:
+contemplative, comic, sacred, ominous, mystical, none.
+
+Validation: unknown emotion/mood/id, missing or unknown speech, duplicate records, a line
+outside the chunk, `L` on a non-spoken line, an exit of a pinned character or of someone who
+is not on stage → error. `+id` for a character who speaks later in the chunk is dropped
+(speakers enter automatically). On an error the runner retries once with the error and the
+rejected answer appended to the input; if it still fails the chunk is `failed` (others go on)
+and the next `run` tries it again.
+
+## Expansion (deterministic, in `merge`)
+
+- Emotion per line: the speech's `S`, replaced from each `L` line on; directions are `neutral`.
+- Music: the current mood on every line, carried across chunks and scenes.
+- `on_stage`: state at scene start (pinned cast, with their pinned positions) + `E` events +
+  auto-enter (a sprite character who speaks is on stage from that line). Pinned characters
+  never leave. Positions are permanent within a scene: pinned first, then the first free of
+  left/center/right in entrance order (a slot nobody used yet is preferred over one freed by
+  an exit, because the generator keeps the first position it sees).
+- `[[overrides]]`, `[[cues]]` (incl. `move`) and `[staging]` are applied later by the generator
+  exactly as before; the shape of `annotated.json` did not change.
 
 ## Commands
 
 | Command | Effect |
 |---|---|
-| `vnpipe annotate chunk` | Write chunk files, remove chunk files that no longer exist. |
-| `vnpipe annotate status [id ...]` | Per chunk `ok`, `missing`, `stale` or `invalid` (with reason) plus a summary. Always exits 0. |
-| `vnpipe annotate prompt <id>` | Print the full annotator instructions for a chunk (absolute paths filled in). |
-| `vnpipe annotate merge [--fallback]` | Validate every cache and write `data/annotated.json`. |
+| `vnpipe annotate run [--model haiku] [--jobs 4] [--only GLOB] [--runner CMD]` | Annotate every chunk without a valid cache (or cached with another model) |
+| `vnpipe annotate status [-v]` | Done / pending / failed chunks, total tokens and cost from the usage log |
+| `vnpipe annotate prompt <chunk>` | Print instructions + input of a chunk, for a manual or sub-agent run |
+| `vnpipe annotate merge [--strict]` | Expand the caches into `data/annotated.json` |
 
-A cache is `ok` when it validates against the schema, carries the chunk's hash, covers exactly
-the chunk's line ids in order, keeps `speaker`/`kind`/`location`/`time_of_day` equal to the
-defaults, and uses only allowed characters (each at most once per line). `stale` means the
-hash differs; everything else wrong is `invalid`.
+**Runner.** Any command that reads the chunk on stdin and prints either the `claude -p
+--output-format json` envelope (`result`, `usage`, `total_cost_usd`) or plain records.
+`{model}` and `{prompt_file}` are substituted. It runs in a temporary directory. Default:
 
-`merge` without `--fallback` prints every problem and exits 1 without writing anything. With
-`--fallback`, each non-ok chunk gets deterministic annotations (defaults, emotion `neutral`,
-music `null`, on stage: the speakers seen so far in the scene who have sprites, placed
-left/right/center in order of appearance), a warning is printed, and the chunk ids are listed
-in `fallback_chunks`. Output is byte-identical across runs.
+```
+env MAX_THINKING_TOKENS=0 claude -p --model {model} --tools "" --strict-mcp-config --setting-sources ""
+  --system-prompt-file {prompt_file} --output-format json --no-session-persistence
+```
 
-## Running the annotators
+`MAX_THINKING_TOKENS=0` is essential: with thinking on, Haiku spent ~10,000 hidden output
+tokens (about 2 minutes, $0.06) on a chunk whose answer is ~200 tokens.
 
-1. `vnpipe annotate chunk`
-2. For each chunk that is not `ok` in `vnpipe annotate status`, start one cheap-model
-   sub-agent whose whole instruction is the output of `vnpipe annotate prompt <chunk_id>`.
-   Chunks are independent, so run them in parallel.
-3. `vnpipe annotate status` until everything is `ok`; relaunch only the failing chunks.
-4. `vnpipe annotate merge`.
+**Cache.** `annotations/cache/<chunk>.txt` holds the accepted answer behind a header line
+with `input=sha256(prompt version + chunk input)` and the model; changing the prompt, the text,
+the scene config or the pinned cast makes the chunk `stale`. Rejected final answers go to
+`<chunk>.failed`. `annotations/usage.jsonl` gets one line per call: chunk, model, attempt,
+input / output / cache-creation / cache-read tokens, cost, seconds (and `rejected` with the
+reason when the answer was refused).
+
+**Partial output.** `merge` always writes every scene. A chunk without a valid answer is
+expanded with no records (neutral, music carried over, speakers auto-enter), listed in
+`fallback_chunks`, and each unannotated scene is printed as a warning. `--strict` refuses to
+merge instead. This keeps the generator and the end-to-end test whole while a work is being
+annotated scene by scene.
+
+## Measured cost (Haiku, Faust pilot)
+
+Overhead of a headless call with the flags above is ~700 tokens. Three chunks (705 spoken
+lines): 4.4k-6.6k input tokens each (instructions ~1.4k + text) and 180-255 output tokens,
+$0.010-0.014 per chunk, ~5 s each; about 25 tokens per spoken line against ~1,000 for the old
+per-line JSON (about 40x less). Extrapolated, the whole play costs roughly $0.35.
 
 ## Resumability
 
-Re-running is safe: only `missing`, `stale` and `invalid` chunks need work. After changing the
-prompt every chunk becomes stale; after changing the text only the affected chunks do. Always
-run `vnpipe annotate chunk` after changing `parsed.json`, `work.toml` or the prompt, before
-starting annotators (`status` warns when chunk files are out of date).
+`run` is idempotent: cached chunks are skipped, so re-running only pays for stale, pending
+and failed ones. Re-run `merge` afterwards.

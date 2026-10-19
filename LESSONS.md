@@ -16,3 +16,7 @@ Recurring problems and what worked. Read before starting; add an entry when a mi
 - Small-model annotators label whole speeches with one emotion and lose stage presence
   across chunks; fix with `work.toml` overrides (pinned cast, emotion ranges), not by
   hand-editing annotated.json.
+- Headless `claude -p` calls to a cheap model must run with `MAX_THINKING_TOKENS=0`: thinking
+  made a 200-token answer cost ~10,000 hidden output tokens (50x) and minutes of latency.
+- Haiku gets entrances wrong when asked for `E +id` far from the character's first line;
+  speakers auto-enter, so `E` is used mainly for exits. Check pilot output against the text.
