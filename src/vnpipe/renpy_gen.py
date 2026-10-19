@@ -23,6 +23,7 @@ from vnpipe import PACKAGE_DIR
 from vnpipe.assets import load_manifest, placeholder, style_file, usable_rendition
 from vnpipe.config import Work, load_work
 from vnpipe.schema import validate
+from vnpipe.voice import copy_voice, voice_files
 
 TEMPLATE_DIR = PACKAGE_DIR / "renpy_templates"
 NO_MANIFEST_STYLE = {"default": {"label": "Default"}}  # work without an asset manifest
@@ -73,6 +74,7 @@ UI_LABELS = {
         "translation": "Traducción",
         "source": "Fuente",
         "music": "Música",
+        "voices": "Voces",
         "art": "Ilustraciones",
         "art_with": "Ilustraciones generadas con {}",
         "gutenberg": "Proyecto Gutenberg, n.º {id}",
@@ -84,6 +86,7 @@ UI_LABELS = {
         "translation": "Translation",
         "source": "Source",
         "music": "Music",
+        "voices": "Voices",
         "art": "Illustrations",
         "art_with": "Illustrations generated with {}",
         "gutenberg": "Project Gutenberg #{id}",
@@ -357,11 +360,18 @@ class SceneWriter:
     """Turns one scene's lines into Ren'Py statements, tracking staging state."""
 
     def __init__(
-        self, work: Work, scene: dict[str, Any], audio: Audio, music_state: dict[str, str | None]
+        self,
+        work: Work,
+        scene: dict[str, Any],
+        audio: Audio,
+        music_state: dict[str, str | None],
+        voice_files: dict[int, str] | None = None,
     ):
         self.work = work
         self.scene = scene
         self.audio = audio
+        self.voice_files = voice_files or {}  # speech index -> clip path (relative to game/)
+        self.voice_started: int | None = None  # speech whose clip is playing
         self.voice = lyric_voice(work)
         self.cues = {c["at"]: c for c in work.data.get("cues", [])}
         staging = work.data.get("staging", {}).get(scene["id"], {})
@@ -478,9 +488,24 @@ class SceneWriter:
             self.stage(box)
         text = "\\n".join(escape_text(line["text"]) for line in box.lines)
         variable = char_var(box.speaker, nvl=self.mode == "nvl")
+        self.voice_statement(box)
         self.emit(f'{variable} "{text}"')
         if self.mode == "nvl":
             self.emit("nvl clear")
+
+    def voice_statement(self, box: Box) -> None:
+        """``voice`` before the first box of a voiced speech, ``voice sustain`` before the
+        following ones (a stage direction inside the speech keeps the clip going, but never
+        starts it)."""
+        speech = box.key[1]
+        path = self.voice_files.get(speech)
+        if not path:
+            return
+        if self.voice_started == speech:
+            self.emit("voice sustain")
+        elif not box.is_direction:
+            self.emit(f"voice {_plain_quote(path)}")
+            self.voice_started = speech
 
     def music(self, spec: str | None) -> None:
         """Play/stop for a mood, ``track:<path>`` or ``none``; never restarts what already plays."""
@@ -614,7 +639,12 @@ def apply_overrides(work: Work, annotated: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def render_script(work: Work, annotated: dict[str, Any], audio: Audio | None = None) -> str:
+def render_script(
+    work: Work,
+    annotated: dict[str, Any],
+    audio: Audio | None = None,
+    voice: dict[str, dict[int, str]] | None = None,
+) -> str:
     validate_staging(work, annotated)
     annotated = apply_overrides(work, annotated)
     out = [
@@ -630,7 +660,9 @@ def render_script(work: Work, annotated: dict[str, Any], audio: Audio | None = N
     audio = audio or Audio()
     music_state: dict[str, str | None] = {"playing": UNKNOWN_MUSIC}
     for scene in annotated["scenes"]:
-        out.extend(SceneWriter(work, scene, audio, music_state).render())
+        out.extend(
+            SceneWriter(work, scene, audio, music_state, (voice or {}).get(scene["id"])).render()
+        )
         seen |= {line["id"] for line in scene["lines"]}
     missing = known - seen
     if missing:
@@ -920,6 +952,8 @@ def credits_sections(work: Work, manifest: dict[str, Any] | None) -> list[tuple[
         sections.append(
             (ui["music"], [t.get(f"attribution_{lang}") or t["attribution"] for t in tracks])
         )
+    if voice_files(work) and work.data.get("voice", {}).get("credits"):
+        sections.append((ui["voices"], list(work.data["voice"]["credits"])))
     about_tail = ABOUT_LABELS.get(info.get("language", "es"), ABOUT_LABELS["en"])[2]
     sections.append(("vnpipe", [about_tail]))
     return [(title, [_markup(e) for e in entries]) for title, entries in sections]
@@ -1032,6 +1066,7 @@ def generate(
             img.save(dest, "PNG")
             written.append(dest)
     written.extend(copy_audio(work, out))
+    written.extend(copy_voice(work, out))
     written.extend(copy_translations(work, out))
     test_file = game / E2E_FILE
     test_file.unlink(missing_ok=True)
@@ -1042,7 +1077,7 @@ def generate(
         ("characters.rpy", render_characters(work)),
         ("images.rpy", render_images(entries, title_cards(work, annotated))),
         ("menu_data.rpy", render_menu_data(work, annotated, manifest)),
-        ("script.rpy", render_script(work, annotated, scan_audio(out))),
+        ("script.rpy", render_script(work, annotated, scan_audio(out), voice_files(work))),
     ):
         write_text(game / name, text)
         written.append(game / name)
