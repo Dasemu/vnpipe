@@ -197,12 +197,16 @@ def test_music_only_when_audio_exists(work, annotated, tmp_path):
     out = tmp_path / "p"
     renpy_gen.generate(work, annotated, out)
     assert "play music" not in (out / "game/script.rpy").read_text(encoding="utf-8")
+    assert "label the_end:\n    scene black" in (out / "game/script.rpy").read_text(
+        encoding="utf-8"
+    )
     (out / "game/audio").mkdir()
     (out / "game/audio/sacred.ogg").write_bytes(b"OggS")
     renpy_gen.generate(work, annotated, out)
     text = (out / "game/script.rpy").read_text(encoding="utf-8")
     assert 'play music "audio/sacred.ogg" fadeout 1.0 fadein 1.0 if_changed' in text
     assert "stop music fadeout 1.0" in text  # mood "none" on the Lord's first line
+    assert "label the_end:\n    stop music fadeout 3.0" in text  # the music fades with the end card
     assert (out / "game/audio/sacred.ogg").is_file()  # regeneration keeps user audio
 
 

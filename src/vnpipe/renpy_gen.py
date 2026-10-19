@@ -637,6 +637,7 @@ def render_script(work: Work, annotated: dict[str, Any], audio: Audio | None = N
         raise ValueError(f"cues refer to unknown line ids: {sorted(missing)}")
     out += [
         "label the_end:",
+        *(["    stop music fadeout 3.0"] if audio.files else []),
         "    scene black",
         "    with fade",
         "    show card_end at truecenter",
