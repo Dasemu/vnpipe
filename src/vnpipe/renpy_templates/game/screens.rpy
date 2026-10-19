@@ -301,6 +301,8 @@ screen navigation():
 
             textbutton _("Start") action Start()
 
+            textbutton "@@UI_SCENES@@" action ShowMenu("vn_scene_select")
+
         else:
 
             textbutton _("History") action ShowMenu("history")
@@ -320,6 +322,8 @@ screen navigation():
             textbutton _("Main Menu") action MainMenu()
 
         textbutton _("About") action ShowMenu("about")
+
+        textbutton "@@UI_CREDITS@@" action ShowMenu("vn_credits")
 
         if renpy.variant("pc") or (renpy.variant("web") and not renpy.variant("mobile")):
 
@@ -357,12 +361,14 @@ screen main_menu():
 
     add gui.main_menu_background
 
-    ## This empty frame darkens the main menu.
+    ## Darkens the background so the title reads well.
+    add Solid("#000000a8")
+
+    ## The left strip behind the navigation.
     frame:
         style "main_menu_frame"
 
-    ## The use statement includes another screen inside this one. The actual
-    ## contents of the main menu are in the navigation screen.
+    ## The actual contents of the main menu are in the navigation screen.
     use navigation
 
     if gui.show_name:
@@ -373,6 +379,10 @@ screen main_menu():
             text "[config.name!t]":
                 style "main_menu_title"
 
+            if vn_subtitle:
+                text "[vn_subtitle!t]":
+                    style "main_menu_subtitle"
+
             text "[config.version]":
                 style "main_menu_version"
 
@@ -381,6 +391,7 @@ style main_menu_frame is empty
 style main_menu_vbox is vbox
 style main_menu_text is gui_text
 style main_menu_title is main_menu_text
+style main_menu_subtitle is main_menu_text
 style main_menu_version is main_menu_text
 
 style main_menu_frame:
@@ -390,20 +401,35 @@ style main_menu_frame:
     background "gui/overlay/main_menu.png"
 
 style main_menu_vbox:
-    xalign 1.0
-    xoffset -30
-    xmaximum 1200
-    yalign 1.0
-    yoffset -30
+    xpos 420
+    xsize 1500
+    yalign 0.42
+    spacing 36
 
 style main_menu_text:
     properties gui.text_properties("main_menu", accent=True)
 
 style main_menu_title:
     properties gui.text_properties("title")
+    size 132
+    kerning 10
+    xalign 0.5
+    text_align 0.5
+    color "#efe6d2"
+    outlines [(4, "#000000b0", 0, 3)]
+
+style main_menu_subtitle:
+    size 46
+    italic True
+    kerning 3
+    xalign 0.5
+    text_align 0.5
+    color "#c9a25b"
+    outlines [(3, "#000000b0", 0, 2)]
 
 style main_menu_version:
     properties gui.text_properties("version")
+    xalign 0.5
 
 
 ## Game Menu screen ############################################################
@@ -423,6 +449,9 @@ screen game_menu(title, scroll=None, yinitial=0.0, spacing=0):
         add gui.main_menu_background
     else:
         add gui.game_menu_background
+
+    ## The game menu is darker than the main menu so text stays legible.
+    add Solid("#000000d0")
 
     frame:
         style "game_menu_outer_frame"

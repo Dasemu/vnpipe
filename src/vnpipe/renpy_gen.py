@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,34 @@ ABOUT_LABELS = {
     "es": ("Texto", "Traducción", "Adaptación a novela visual generada con vnpipe."),
     "en": ("Text", "Translation", "Visual novel adaptation generated with vnpipe."),
 }
+# Menu/credits strings per work language: scenes, credits, text, translation, source, music,
+# illustrations, "illustrations generated with X", Gutenberg line, "no scene reached yet".
+UI_LABELS = {
+    "es": {
+        "scenes": "Escenas",
+        "credits": "Créditos",
+        "text": "Texto",
+        "translation": "Traducción",
+        "source": "Fuente",
+        "music": "Música",
+        "art": "Ilustraciones",
+        "art_with": "Ilustraciones generadas con {}",
+        "gutenberg": "Proyecto Gutenberg, n.º {id}",
+    },
+    "en": {
+        "scenes": "Scenes",
+        "credits": "Credits",
+        "text": "Text",
+        "translation": "Translation",
+        "source": "Source",
+        "music": "Music",
+        "art": "Illustrations",
+        "art_with": "Illustrations generated with {}",
+        "gutenberg": "Project Gutenberg #{id}",
+    },
+}
+ART_SOURCE_NAMES = {"chatgpt-web": "ChatGPT (OpenAI)"}  # manifest `source` -> display name
+LOCKED_SCENE = "—"
 # (preferences title and picker heading, picker hint) per work language
 ART_STYLE_LABELS = {
     "es": ("Estilo visual", "Puedes cambiarlo más tarde en Preferencias."),
@@ -499,6 +528,8 @@ class SceneWriter:
     def render(self) -> list[str]:
         scene = self.scene
         self.out.append(f"label scene_{scene['id']}:")
+        self.emit(f'$ vn_mark_scene("scene_{scene["id"]}")')  # unlocks it in the scene select
+        self.emit("window auto")  # also when entered from the scene select, not via `start`
         self.emit("scene black")
         self.emit(f"show card_{scene['id']} at truecenter")
         self.emit("with fade")
@@ -679,15 +710,16 @@ testsuite global:
 testcase default:
     $ _test.transition_timeout = 0.05
     $ _test.timeout = 30.0
+    $ preferences.text_cps = 0
     pause 1.0
     click "Start"
 @@PICK@@    advance until eval (e2e_state["end"]) timeout 900
     advance until screen "main_menu" timeout 60
-    assert eval (e2e_state["end"])
+@@MENUS@@    assert eval (e2e_state["end"])
 """
 
 
-def render_e2e(styles: dict[str, Any]) -> str:
+def render_e2e(styles: dict[str, Any], ui: dict[str, str]) -> str:
     """The playthrough testcase; with a style choice it also exercises the first-launch picker
     (picking the last style, so the non-default switch branch is the one in use)."""
     pick = ""
@@ -699,7 +731,17 @@ def render_e2e(styles: dict[str, Any]) -> str:
             f"    click {_plain_quote(cfg['label'])}\n"
             f"    assert eval (persistent.art_style == {sid!r})\n"
         )
-    return E2E_TESTCASE.replace("@@PICK@@", pick)
+    menus = (
+        f"    click {_plain_quote(ui['credits'])}\n"
+        '    assert screen "vn_credits"\n'
+        '    click "Return"\n'
+        '    assert screen "main_menu"\n'
+        f"    click {_plain_quote(ui['scenes'])}\n"
+        '    assert screen "vn_scene_select"\n'
+        '    click "Return"\n'
+        '    assert screen "main_menu"\n'
+    )
+    return E2E_TESTCASE.replace("@@PICK@@", pick).replace("@@MENUS@@", menus)
 
 
 # --- static project files -----------------------------------------------------------------
@@ -720,6 +762,7 @@ def render_characters(work: Work) -> str:
             props.append(f"what_color={_plain_quote(color)}")
         if cid == "narrator":
             props.append("what_italic=True")
+        props += ['ctc="vn_ctc"', 'ctc_position="nestled"']
         adv = ", ".join([who, *props])
         nvl_props = ["kind=nvl", *props]
         if not name:
@@ -730,10 +773,26 @@ def render_characters(work: Work) -> str:
     return "\n".join(out)
 
 
-def title_cards(work: Work, annotated: dict[str, Any]) -> dict[str, str]:
-    cards = {f"card_{sc['id']}": sc["heading"] for sc in annotated["scenes"]}
-    cards["card_end"] = work.data["work"].get("end_text", DEFAULT_END_TEXT)
+def title_cards(work: Work, annotated: dict[str, Any]) -> dict[str, tuple[str, str | None]]:
+    """Image name -> (heading, optional subtitle line: place/time, from ``[[scenes]].subtitle``)."""
+    subtitles = {sc["id"]: sc.get("subtitle") for sc in work.data.get("scenes", [])}
+    cards: dict[str, tuple[str, str | None]] = {
+        f"card_{sc['id']}": (sc["heading"], subtitles.get(sc["id"])) for sc in annotated["scenes"]
+    }
+    cards["card_end"] = (work.data["work"].get("end_text", DEFAULT_END_TEXT), None)
     return cards
+
+
+def render_card(heading: str, subtitle: str | None) -> str:
+    """A heading, plus a smaller italic line below it when the scene has a subtitle."""
+    props = "size=60, text_align=0.5"
+    if not subtitle:
+        return f'Text("{escape_text(heading)}", {props})'
+    sub_props = 'size=30, italic=True, color="#c9a25b", text_align=0.5'
+    return (
+        f'VBox(Text("{escape_text(heading)}", {props}, xalign=0.5), '
+        f'Text("{escape_text(subtitle)}", {sub_props}, xalign=0.5), spacing=28)'
+    )
 
 
 def render_image_entry(e: ImageEntry) -> str:
@@ -750,10 +809,10 @@ def render_image_entry(e: ImageEntry) -> str:
     return f"image {e.name} = ConditionSwitch({', '.join(parts)})"
 
 
-def render_images(entries: list[ImageEntry], cards: dict[str, str]) -> str:
+def render_images(entries: list[ImageEntry], cards: dict[str, tuple[str, str | None]]) -> str:
     out = ["## Generated by `vnpipe renpy`. Do not edit: regenerate instead.", ""]
-    for name, text in cards.items():  # title cards: plain images, not `show text`
-        out.append(f'image {name} = Text("{escape_text(text)}", size=60, text_align=0.5)')
+    for name, (heading, subtitle) in cards.items():  # title cards: plain images, not `show text`
+        out.append(f"image {name} = {render_card(heading, subtitle)}")
     out.extend(render_image_entry(e) for e in entries)
     out.append("")
     return "\n".join(out)
@@ -769,6 +828,94 @@ def _about(work: Work) -> str:
         parts.append(f"{trans_l}: {info['translator']}")
     parts.append(tail)
     return "\\n\\n".join(escape_text(p) for p in parts if p)
+
+
+def ui_labels(work: Work) -> dict[str, str]:
+    return UI_LABELS.get(work.data["work"].get("language", "es"), UI_LABELS["en"])
+
+
+def _markup(text: str) -> str:
+    """Escape Ren'Py text markup only (for strings shown by `text`, not quoted in a script)."""
+    return text.replace("[", "[[").replace("{", "{{")
+
+
+def credit_tracks(work: Work) -> list[dict[str, Any]]:
+    """Tracks of ``<work>/audio/credits.toml`` whose file ships with the game."""
+    path = work.path("audio/credits.toml")
+    if not path.is_file():
+        return []
+    with path.open("rb") as fh:
+        tracks = tomllib.load(fh).get("track", [])
+    return [t for t in tracks if work.path(t["file"]).is_file()]
+
+
+def art_sources(manifest: dict[str, Any] | None) -> list[str]:
+    """Display names of the generators behind the shipped (non-placeholder) renditions."""
+    found = set()
+    for asset in (manifest or {}).get("assets", []):
+        for rendition in asset["renditions"].values():
+            source = rendition.get("source")
+            if source and source != "placeholder" and rendition["status"] != "placeholder":
+                found.add(ART_SOURCE_NAMES.get(source, source))
+    return sorted(found)
+
+
+def credits_sections(work: Work, manifest: dict[str, Any] | None) -> list[tuple[str, list[str]]]:
+    info = work.data["work"]
+    ui = ui_labels(work)
+    sections: list[tuple[str, list[str]]] = []
+    text = [info["author"]] if info.get("author") else []
+    if info.get("translator"):
+        text.append(f"{ui['translation']}: {info['translator']}")
+    gutenberg = work.data.get("source", {}).get("gutenberg_id")
+    if gutenberg:
+        text.append(
+            f"{ui['source']}: {ui['gutenberg'].format(id=gutenberg)}"
+            f" (https://www.gutenberg.org/ebooks/{gutenberg})"
+        )
+    if text:
+        sections.append((ui["text"], text))
+    sources = art_sources(manifest)
+    if sources:
+        sections.append((ui["art"], [ui["art_with"].format(", ".join(sources))]))
+    tracks = credit_tracks(work)
+    if tracks:  # attributions are printed verbatim (CC BY-SA requires them)
+        sections.append((ui["music"], [t["attribution"] for t in tracks]))
+    about_tail = ABOUT_LABELS.get(info.get("language", "es"), ABOUT_LABELS["en"])[2]
+    sections.append(("vnpipe", [about_tail]))
+    return [(title, [_markup(e) for e in entries]) for title, entries in sections]
+
+
+def scene_menu_titles(work: Work, annotated: dict[str, Any]) -> list[tuple[str, str]]:
+    """(label, title) per scene; a repeated heading gets its subtitle, else its number."""
+    subtitles = {sc["id"]: sc.get("subtitle") for sc in work.data.get("scenes", [])}
+    headings = [sc["heading"] for sc in annotated["scenes"]]
+    seen: dict[str, int] = {}
+    result = []
+    for sc in annotated["scenes"]:
+        title = sc["heading"]
+        if headings.count(title) > 1:
+            seen[title] = seen.get(title, 0) + 1
+            title += f" ({subtitles.get(sc['id']) or seen[title]})"
+        result.append((f"scene_{sc['id']}", _markup(title)))
+    return result
+
+
+def render_menu_data(work: Work, annotated: dict[str, Any], manifest: dict[str, Any] | None) -> str:
+    def py(value: Any) -> str:  # JSON strings are valid Python literals
+        return json.dumps(value, ensure_ascii=False)
+
+    subtitle = _markup(work.data["work"].get("subtitle", ""))
+    return "\n".join(
+        [
+            "## Generated by `vnpipe renpy`. Do not edit: regenerate instead.",
+            "",
+            f"define vn_subtitle = {py(subtitle)}",
+            f"define vn_scenes = {py(scene_menu_titles(work, annotated))}",
+            f"define vn_credits = {py(credits_sections(work, manifest))}",
+            "",
+        ]
+    )
 
 
 def _substitute(text: str, values: dict[str, str]) -> str:
@@ -800,13 +947,18 @@ def generate(
     # GUI template: copy binaries, substitute tokens in .rpy files.
     menu_bg = MENU_BG_FALLBACK
     staging = work.data.get("staging", {})
-    first_bg = info.get("menu_bg") or next((c["bg"] for c in staging.values() if c.get("bg")), None)
+    first_bg = (
+        work.data.get("ui", {}).get("main_menu_bg")
+        or info.get("menu_bg")
+        or next((c["bg"] for c in staging.values() if c.get("bg")), None)
+    )
     if first_bg:
         menu_bg = bg_image_name(first_bg)
     styles, default_style = art_styles(manifest)
     picker_title, picker_hint = ART_STYLE_LABELS.get(
         info.get("language", "es"), ART_STYLE_LABELS["en"]
     )
+    ui = ui_labels(work)
     values = {
         "ART_STYLES": repr([(sid, cfg["label"]) for sid, cfg in styles.items()]),
         "DEFAULT_STYLE": default_style,
@@ -818,6 +970,9 @@ def generate(
         "BUILD_NAME": f"{info['id']}-vn",
         "SAVE_DIR": f"{info['id']}-vn",
         "MENU_BG": menu_bg,
+        "UI_SCENES": ui["scenes"],
+        "UI_CREDITS": ui["credits"],
+        "LOCKED": LOCKED_SCENE,
     }
     written: list[Path] = []
     for src in sorted((TEMPLATE_DIR / "game").rglob("*")):
@@ -841,11 +996,12 @@ def generate(
     test_file = game / E2E_FILE
     test_file.unlink(missing_ok=True)
     if with_test:
-        write_text(test_file, render_e2e(styles))
+        write_text(test_file, render_e2e(styles, ui))
         written.append(test_file)
     for name, text in (
         ("characters.rpy", render_characters(work)),
         ("images.rpy", render_images(entries, title_cards(work, annotated))),
+        ("menu_data.rpy", render_menu_data(work, annotated, manifest)),
         ("script.rpy", render_script(work, annotated, scan_audio(out))),
     ):
         write_text(game / name, text)

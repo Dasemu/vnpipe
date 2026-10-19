@@ -105,7 +105,8 @@ The expected result is a statistics block with no warnings above it.
 
 Lint does not catch runtime errors (missing GUI images, display bugs). `--with-test` also
 writes `game/e2e_test.rpy`, a Ren'Py `testcase` that clicks "Start", advances through the
-whole game up to the final card (`label the_end`) and back to the main menu, failing on any
+whole game up to the final card (`label the_end`) and back to the main menu (then opens and
+closes the Scenes and Credits screens), failing on any
 exception (`traceback.txt`). Use a throw-away output directory so the test file never ends
 up in `vn/` or in a build:
 

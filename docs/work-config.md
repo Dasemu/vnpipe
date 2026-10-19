@@ -6,11 +6,12 @@ A work is a directory containing `work.toml`, plus the folders the pipeline fill
 
 | Table | Keys |
 |---|---|
-| `[work]` | `id`, `title`, `subtitle`, `author`, `translator`, `language` (`es`/`en`, used for the About text), `lyric_voice` (cast id for verse nobody speaks; default `poet_voice`), `end_text`, `menu_bg` (background asset id for the main menu; default: first staged `bg`). |
+| `[work]` | `id`, `title`, `subtitle`, `author`, `translator`, `language` (`es`/`en`: About, menu and credits texts), `lyric_voice` (cast id for verse nobody speaks; default `poet_voice`), `end_text`, `menu_bg` (legacy alias of `[ui].main_menu_bg`). |
+| `[ui]` | `main_menu_bg` (background asset id of the main menu and, darker, the game menu; default: `[work].menu_bg`, else the first staged `bg`). |
 | `[source]` | `gutenberg_id`, `url`, `raw_file` (cache path, relative to the work root, gitignored). |
 | `[scope]` | `start_marker`, `end_marker` (whole stripped lines), `end_occurrence` (1-based, searched after the start; the end marker itself is excluded). |
 | `[speakers]` | Speaker heading as printed (upper case, without its italic note) → cast id. Several headings may share one id (anonymous crowd speakers). A key with punctuation or markup (`"CORO, TUTTI"`) is matched against the whole printed line first. An unknown speaker is a parse error. |
-| `[[scenes]]` | `heading` (as printed), `id`, `location`, `time_of_day`, optional `occurrence` and `format` (below). |
+| `[[scenes]]` | `heading` (as printed), `id`, `location`, `time_of_day`, optional `occurrence`, `format` (below) and `subtitle` (a short, already localized place/time line shown under the heading on the title card; absent = heading only). |
 | `[parser]` | `direction_headings`: whole lines in capitals that are stage directions or section titles (`"ENTRA FAUSTO"`), not speakers. Each becomes a `direction` line once the scene's first speech has started (before it, the line is treated as cast/setting). |
 | `[cast.<id>]` | `name` (shown in the dialogue box), `color`, `sprite` (default `true`; `false` = never drawn), `expressions` (annotation emotion → sprite expression; needs `neutral`). |
 | `[staging.<scene id>]` | `bg` (background shown after the title card), `mode` (`adv` or `nvl`), `cast = { <char> = "left\|center\|right" }` pins sprite characters for the whole scene, `music` (see Audio; ignores the annotation moods for this scene). |
@@ -64,3 +65,19 @@ mood (`ann.music`), unless overridden:
 - A track that is already playing is never restarted (`if_changed`); the first music statement
   of each scene is always emitted so a scene entered from the scene select has music.
 - Unknown `track:` paths, and moods with no audio when the work has audio, are errors.
+
+### Menus, credits and reading comfort
+
+- **Main menu**: the `[ui].main_menu_bg` background, darkened, with `[work].title` large and
+  `[work].subtitle` below it; entries Start, Scenes, Load, Preferences, About, Credits, Help, Quit.
+  The game menu uses the same background, darker.
+- **Scenes** (main menu only): every scene the player has reached (a persistent set updated
+  when the scene starts), listed by heading; selecting one starts the game from that scene.
+  Unreached scenes show as an em dash. A heading shared by several scenes is told apart by
+  the scene's `subtitle` (else its number).
+- **Credits**: text author/translator/Gutenberg source from `[work]` and `[source]`; the art
+  line from the manifest's renditions (non-placeholder `source`, e.g. "ChatGPT (OpenAI)");
+  the music from `<work>/audio/credits.toml` (`[[track]]` with `file`, `attribution`; only
+  tracks whose file exists). Attributions are printed verbatim. Labels follow `[work].language`.
+- Defaults: `preferences.text_cps = 40`, `afm_time = 15`, `window auto`, a blinking
+  click-to-continue arrow. Verse boxes stay at 4 lines; NVL keeps stanza pages.

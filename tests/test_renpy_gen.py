@@ -155,8 +155,12 @@ def test_sprite_false_never_shown(script):
 
 def test_characters_and_images(project):
     chars = (project / "game/characters.rpy").read_text(encoding="utf-8")
-    assert 'define c_director = Character("El Director", who_color="#c9a25b")' in chars
+    assert (
+        'define c_director = Character("El Director", who_color="#c9a25b", '
+        'ctc="vn_ctc", ctc_position="nestled")' in chars
+    )
     assert 'define c_director_nvl = Character("El Director", kind=nvl' in chars
+    assert chars.count('ctc="vn_ctc"') == chars.count("Character(")
     assert "define c_narrator = Character(None, what_color=" in chars
     assert "what_italic=True" in chars
     nameless_nvl = next(ln for ln in chars.split("\n") if ln.startswith("define c_poet_voice_nvl"))
@@ -466,3 +470,78 @@ def test_music_config_errors(work, annotated):
     w = _with_cfg(work, staging={"talk": {"music": "loud"}})
     with pytest.raises(ValueError, match="no audio for music mood"):
         renpy_gen.render_script(w, annotated, _audio())
+
+
+def _project(work, annotated, tmp_path, **cfg):
+    out = tmp_path / "p"
+    renpy_gen.generate(_with_cfg(work, **cfg) if cfg else work, annotated, out)
+    return out
+
+
+def test_title_card_subtitle(work, annotated, tmp_path):
+    scenes = [{"heading": "CONVERSACIÓN", "id": "talk", "subtitle": "Escenario · Día"}]
+    out = _project(work, annotated, tmp_path, scenes=scenes)
+    images = (out / "game/images.rpy").read_text(encoding="utf-8")
+    assert 'image card_talk = VBox(Text("CONVERSACIÓN", size=60' in images
+    assert 'Text("Escenario · Día", size=30, italic=True' in images
+    assert 'image card_lyric = Text("LÍRICA", size=60, text_align=0.5)' in images  # no subtitle
+
+
+def test_scene_labels_and_menus(project, script):
+    assert 'label scene_talk:\n    $ vn_mark_scene("scene_talk")\n    window auto' in script
+    data = (project / "game/menu_data.rpy").read_text(encoding="utf-8")
+    assert 'define vn_scenes = [["scene_lyric", "LÍRICA"], ["scene_talk", "CONVERSACIÓN"]]' in data
+    assert 'define vn_subtitle = "Fixture work"' in data
+    menus = (project / "game/menus.rpy").read_text(encoding="utf-8")
+    assert "Start(scene_label)" in menus and "@@" not in menus
+    screens = (project / "game/screens.rpy").read_text(encoding="utf-8")
+    assert 'textbutton "Escenas" action ShowMenu("vn_scene_select")' in screens
+    assert 'textbutton "Créditos" action ShowMenu("vn_credits")' in screens
+    assert "@@" not in screens
+
+
+def test_repeated_headings_are_told_apart(work, annotated):
+    ann = json.loads(json.dumps(annotated))
+    ann["scenes"][1]["heading"] = ann["scenes"][0]["heading"]
+    scenes = [{"id": "talk", "heading": "x", "subtitle": "Día"}]
+    titles = renpy_gen.scene_menu_titles(_with_cfg(work, scenes=scenes), ann)
+    assert [t for _, t in titles] == ["LÍRICA (1)", "LÍRICA (Día)"]
+
+
+def test_credits_from_work_audio_and_manifest(work, tmp_path):
+    root = tmp_path / "w"
+    (root / "audio").mkdir(parents=True)
+    (root / "audio/a.ogg").write_bytes(b"OggS")
+    (root / "audio/credits.toml").write_text(
+        '[[track]]\nfile = "audio/a.ogg"\nattribution = "Bach [x]. CC BY-SA 4.0."\n'
+        '[[track]]\nfile = "audio/missing.ogg"\nattribution = "not shipped"\n',
+        encoding="utf-8",
+    )
+    data = json.loads(json.dumps(work.data))
+    data["source"] = {"gutenberg_id": 42}
+    w = type(work)(root=root, data=data)
+    manifest = {
+        "assets": [
+            {"renditions": {"s": {"source": "chatgpt-web", "status": "approved"}}},
+            {"renditions": {"s": {"source": "placeholder", "status": "placeholder"}}},
+        ]
+    }
+    sections = dict(renpy_gen.credits_sections(w, manifest))
+    assert sections["Texto"][0] == "A. Author"
+    assert sections["Texto"][1] == "Traducción: T. Translator"
+    assert "Proyecto Gutenberg, n.º 42" in sections["Texto"][2]
+    assert sections["Ilustraciones"] == ["Ilustraciones generadas con ChatGPT (OpenAI)"]
+    assert sections["Música"] == ["Bach [[x]. CC BY-SA 4.0."]  # verbatim, markup-escaped only
+
+
+def test_main_menu_background_from_ui(work, annotated, tmp_path):
+    out = _project(work, annotated, tmp_path, ui={"main_menu_bg": "bg_theatre"})
+    gui = (out / "game/gui.rpy").read_text(encoding="utf-8")
+    assert 'gui.main_menu_background = "bg theatre"' in gui
+
+
+def test_reading_comfort_defaults(project):
+    options = (project / "game/options.rpy").read_text(encoding="utf-8")
+    assert "default preferences.text_cps = 40" in options
+    assert "default preferences.afm_time = 15" in options
+    assert "define config.has_music = True" in options
