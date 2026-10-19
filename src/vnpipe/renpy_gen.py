@@ -157,6 +157,28 @@ def scan_audio(out: Path) -> Audio:
     return Audio(moods, frozenset(paths))
 
 
+def copy_translations(work: Work, out: Path) -> list[Path]:
+    """Copy ``<work>/tl/**/*.rpy`` into ``game/tl/`` and set ``[ui].language`` as default."""
+    src_root = work.path("tl")
+    dest_root = out / "game" / "tl"
+    lang_file = out / "game" / "language.rpy"
+    written = []
+    if src_root.is_dir():
+        shutil.rmtree(dest_root, ignore_errors=True)
+        for src in sorted(src_root.rglob("*.rpy")):
+            dest = dest_root / src.relative_to(src_root)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
+            written.append(dest)
+    language = work.data.get("ui", {}).get("language")
+    if language:
+        write_text(lang_file, f"define config.default_language = {quote(language)}\n")
+        written.append(lang_file)
+    else:
+        lang_file.unlink(missing_ok=True)
+    return written
+
+
 def copy_audio(work: Work, out: Path) -> list[Path]:
     """Copy ``<work>/audio/**/*.ogg`` into ``game/audio/`` keeping subdirectories."""
     src_root = work.path("audio")
@@ -712,7 +734,8 @@ testcase default:
     $ _test.timeout = 30.0
     $ preferences.text_cps = 0
     pause 1.0
-    click "Start"
+    # Actions, not label text: stock menu labels may be translated.
+    run Start()
 @@PICK@@    advance until eval (e2e_state["end"]) timeout 900
     advance until screen "main_menu" timeout 60
 @@MENUS@@    assert eval (e2e_state["end"])
@@ -734,11 +757,11 @@ def render_e2e(styles: dict[str, Any], ui: dict[str, str]) -> str:
     menus = (
         f"    click {_plain_quote(ui['credits'])}\n"
         '    assert screen "vn_credits"\n'
-        '    click "Return"\n'
+        "    run Return()\n"
         '    assert screen "main_menu"\n'
         f"    click {_plain_quote(ui['scenes'])}\n"
         '    assert screen "vn_scene_select"\n'
-        '    click "Return"\n'
+        "    run Return()\n"
         '    assert screen "main_menu"\n'
     )
     return E2E_TESTCASE.replace("@@PICK@@", pick).replace("@@MENUS@@", menus)
@@ -993,6 +1016,7 @@ def generate(
             img.save(dest, "PNG")
             written.append(dest)
     written.extend(copy_audio(work, out))
+    written.extend(copy_translations(work, out))
     test_file = game / E2E_FILE
     test_file.unlink(missing_ok=True)
     if with_test:
