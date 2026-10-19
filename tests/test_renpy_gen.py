@@ -427,6 +427,22 @@ def test_scan_and_copy_audio(work, tmp_path):
     assert "audio/scenes/x.ogg" in audio.files
 
 
+def test_copy_translations_and_default_language(work, tmp_path):
+    root = tmp_path / "w"
+    (root / "tl/spanish").mkdir(parents=True)
+    (root / "tl/spanish/common.rpy").write_text("translate spanish strings:\n", encoding="utf-8")
+    data = {**work.data, "ui": {**work.data.get("ui", {}), "language": "spanish"}}
+    out = tmp_path / "out"
+    copied = renpy_gen.copy_translations(type(work)(root=root, data=data), out)
+    assert (out / "game/tl/spanish/common.rpy").is_file()
+    lang = out / "game/language.rpy"
+    assert lang in copied
+    assert lang.read_text(encoding="utf-8") == 'define config.default_language = "spanish"\n'
+    # Without [ui].language the stale file is removed.
+    renpy_gen.copy_translations(type(work)(root=tmp_path / "none", data=work.data), out)
+    assert not lang.exists()
+
+
 def test_mood_directory_is_a_playlist(work, annotated):
     block = scene_block(renpy_gen.render_script(work, annotated, _audio()), "lyric")
     assert _music_lines(block) == [
