@@ -316,6 +316,7 @@ def test_renpy_condition_switch_and_fallback(work_root, tmp_path):
     assert 'default persistent.art_style = "paint"' in styles
     assert "define vn_art_styles = [('paint', 'Paint'), ('ink', 'Ink')]" in styles
     assert "@@" not in styles
+    assert "$ quick_menu = False" in styles  # the picker hides the in-game quick menu
     assert "call vn_pick_art_style" in (out / "game/script.rpy").read_text(encoding="utf-8")
     screens = (out / "game/screens.rpy").read_text(encoding="utf-8")
     assert "Estilo visual" in screens and 'SetField(persistent, "art_style", style_id)' in screens
@@ -353,3 +354,26 @@ def test_two_style_project_lints_and_plays(work_root, tmp_path):
     report = lint.stdout + lint.stderr
     assert lint.returncode == 0 and "error" not in report.lower(), report
     test_renpy_gen.run_e2e(out, home)
+
+
+def test_placeholder_label_only_when_asked():
+    from PIL import ImageChops
+
+    from vnpipe.assets import placeholder
+
+    asset = {"id": "bg_x", "kind": "background"}
+    labelled, plain = placeholder(asset), placeholder(asset, label=False)
+    assert ImageChops.difference(labelled, plain).getbbox() is not None
+    # the shipped placeholder is the plain gradient: no pixel brighter than its last row
+    assert plain.getpixel((0, 0)) != plain.getpixel((0, plain.height - 1))  # a bare gradient
+
+
+def test_renpy_regenerates_placeholders_and_adds_slot_frames(work_root, tmp_path):
+    assets.ensure_placeholder(
+        work_root, assets.find_asset(assets.load_manifest(work_root), "bg_theatre"), "paint"
+    )
+    out = gen(work_root, tmp_path)
+    shipped = Image.open(out / "game/images/bg/paint/theatre.webp").convert("RGB")
+    assert shipped.getpixel((0, 40)) == shipped.getpixel((300, 40))  # no label on the row
+    assert (out / "game/gui/button/slot_idle_background.png").is_file()
+    assert (out / "game/gui/button/slot_hover_background.png").is_file()

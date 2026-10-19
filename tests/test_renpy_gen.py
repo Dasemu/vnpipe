@@ -175,7 +175,10 @@ def test_characters_and_images(project):
 
 def test_title_card_images(project):
     images = (project / "game/images.rpy").read_text(encoding="utf-8")
-    assert 'image card_talk = Text("CONVERSACIÓN", size=60, text_align=0.5)' in images
+    assert (
+        'image card_talk = Text("CONVERSACIÓN", size=76, kerning=3, text_align=0.5, xmaximum=1600)'
+        in images
+    )
     assert 'image card_end = Text("Continuará…"' in images
 
 
@@ -498,9 +501,12 @@ def test_title_card_subtitle(work, annotated, tmp_path):
     scenes = [{"heading": "CONVERSACIÓN", "id": "talk", "subtitle": "Escenario · Día"}]
     out = _project(work, annotated, tmp_path, scenes=scenes)
     images = (out / "game/images.rpy").read_text(encoding="utf-8")
-    assert 'image card_talk = VBox(Text("CONVERSACIÓN", size=60' in images
-    assert 'Text("Escenario · Día", size=30, italic=True' in images
-    assert 'image card_lyric = Text("LÍRICA", size=60, text_align=0.5)' in images  # no subtitle
+    assert 'image card_talk = VBox(Text("CONVERSACIÓN", size=76' in images
+    assert 'Text("Escenario · Día", size=34, italic=True' in images
+    assert (
+        'image card_lyric = Text("LÍRICA", size=76, kerning=3, text_align=0.5, xmaximum=1600)'
+        in images
+    )  # no subtitle
 
 
 def test_scene_labels_and_menus(project, script):
@@ -528,8 +534,11 @@ def test_credits_from_work_audio_and_manifest(work, tmp_path):
     root = tmp_path / "w"
     (root / "audio").mkdir(parents=True)
     (root / "audio/a.ogg").write_bytes(b"OggS")
+    (root / "audio/b.ogg").write_bytes(b"OggS")
     (root / "audio/credits.toml").write_text(
         '[[track]]\nfile = "audio/a.ogg"\nattribution = "Bach [x]. CC BY-SA 4.0."\n'
+        '[[track]]\nfile = "audio/b.ogg"\nattribution = "Liszt. Performed by X."\n'
+        'attribution_es = "Liszt. Interpretación de X."\n'
         '[[track]]\nfile = "audio/missing.ogg"\nattribution = "not shipped"\n',
         encoding="utf-8",
     )
@@ -547,7 +556,8 @@ def test_credits_from_work_audio_and_manifest(work, tmp_path):
     assert sections["Texto"][1] == "Traducción: T. Translator"
     assert "Proyecto Gutenberg, n.º 42" in sections["Texto"][2]
     assert sections["Ilustraciones"] == ["Ilustraciones generadas con ChatGPT (OpenAI)"]
-    assert sections["Música"] == ["Bach [[x]. CC BY-SA 4.0."]  # verbatim, markup-escaped only
+    # verbatim (markup-escaped only); a translated `attribution_<language>` wins when present
+    assert sections["Música"] == ["Bach [[x]. CC BY-SA 4.0.", "Liszt. Interpretación de X."]
 
 
 def test_main_menu_background_from_ui(work, annotated, tmp_path):

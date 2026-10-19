@@ -77,7 +77,8 @@ mood (`ann.music`), unless overridden:
   the scene's `subtitle` (else its number).
 - **Credits**: text author/translator/Gutenberg source from `[work]` and `[source]`; the art
   line from the manifest's renditions (non-placeholder `source`, e.g. "ChatGPT (OpenAI)");
-  the music from `<work>/audio/credits.toml` (`[[track]]` with `file`, `attribution`; only
-  tracks whose file exists). Attributions are printed verbatim. Labels follow `[work].language`.
+  the music from `<work>/audio/credits.toml` (`[[track]]` with `file`, `attribution`, optional
+  `attribution_<language>` used instead when it matches `[work].language`; only tracks whose file
+  exists). Attributions are printed verbatim. Labels follow `[work].language`.
 - Defaults: `preferences.text_cps = 40`, `afm_time = 15`, `window auto`, a blinking
   click-to-continue arrow. Verse boxes stay at 4 lines; NVL keeps stanza pages.
