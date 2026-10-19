@@ -461,8 +461,8 @@ class SceneWriter:
 
     def music(self, spec: str | None) -> None:
         """Play/stop for a mood, ``track:<path>`` or ``none``; never restarts what already plays."""
-        if spec is None:
-            return
+        if spec is None or (not self.audio.files and spec != "none"):
+            return  # nothing to play (a work without audio)
         if spec == "none":
             if self.music_state["playing"] is not None:
                 self.emit("stop music fadeout 1.0")
