@@ -27,7 +27,7 @@ redone unless their input changes.
 |---|---|---|
 | Text | `fetch`, `parse` | `text.py` |
 | Annotation | `annotate chunk/status/prompt/merge` ([details](annotation.md)) | `annotate.py` |
-| Assets | `assets prompt/import/process/status/placeholders/sheet` | `assets.py` |
+| Assets | `assets prompt/import/process/check/status/placeholders/sheet/migrate` | `assets.py` |
 | Ren'Py | `renpy [--from-parsed] [--with-test] [--out DIR]` | `renpy_gen.py` |
 
 `--work DIR` (before the subcommand) selects the work root; default is the current directory.
@@ -44,6 +44,6 @@ redone unless their input changes.
 
 ## Asset manifest
 
-`assets/assets.json` lists backgrounds and sprites with a status (`processed`, `approved`,
-`placeholder`, ...). Anything missing or unusable is replaced by a generated placeholder, so
+`assets/assets.json` (v2) declares art styles and lists backgrounds and sprites, each with
+one rendition per style and a status (`processed`, `approved`, `placeholder`, ...). Anything missing or unusable is replaced by a generated placeholder, so
 the game always runs.

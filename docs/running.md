@@ -27,14 +27,55 @@ uv run vnpipe renpy --out some/dir  # default output: <work>/vn
 ```
 
 Generation is deterministic: running it twice gives identical files (no timestamps).
-It rewrites `game/{options,gui,screens,support,characters,images,script}.rpy`,
+It rewrites `game/{options,gui,screens,support,styles,characters,images,script}.rpy`,
 `game/gui/`, `game/fonts/` and `game/images/`; anything else (for example `game/audio/`)
 is left alone. Music only appears in the script for moods that have a matching
 `game/audio/<mood>.ogg`, so drop files there and regenerate.
 
-Images come from `assets/assets.json` (statuses `processed`, `approved`,
-`placeholder`); anything missing or unusable is replaced by a generated placeholder so
-the game always runs.
+Images come from `assets/assets.json` (see "Art styles" below); anything missing or
+unusable is replaced by a generated placeholder so the game always runs. The generator also
+writes `game/styles.rpy` (the first-launch style picker and `persistent.art_style`).
+
+### Art styles and the asset manifest (v2)
+
+`assets/assets.json` declares the art styles once and gives each asset one *rendition* per
+style:
+
+```json
+{
+  "default_style": "painterly",
+  "styles": {"painterly": {"label": "Pictórico", "base_prompt": "...",
+             "templates": {"background": "...", "sprite": "...", "variant": "..."}}},
+  "assets": [{"id": "sprite_faust_neutral", "kind": "sprite", "character": "faust",
+              "expression": "neutral", "prompt": "...", "reference": null,
+              "renditions": {"painterly": {"source": "chatgpt-web", "generation_id": "...",
+                "raw_file": "raw/painterly/sprite_faust_neutral.png",
+                "file": "sprites/painterly/faust_neutral.webp", "sha256": "...",
+                "status": "approved", "notes": ""}}}]
+}
+```
+
+The prompt sent is `styles[style].base_prompt` + the kind template + the asset prompt.
+Files live in `<kind dir>/<style>/<name>.webp` (raw: `raw/<style>/<asset id>.png`).
+Asset commands take `--style` (default: `default_style`):
+
+```sh
+vnpipe assets prompt|import|process|placeholders|sheet [--style S] ...
+vnpipe assets status [--style S]       # asset x style matrix + approved/pending/missing counts
+vnpipe assets check [--style S] [IDS]  # automatic checks, exit 1 on any failure
+vnpipe assets migrate STYLE [--label L]  # one-off: v1 manifest -> v2 (old data becomes STYLE)
+```
+
+`process` runs the checks on what it processed. Checks: a variant's sha256 differs from its
+reference's (same style); a sprite's opaque coverage is 15-85% (measured on the keyed raw
+image when it exists, else on the trimmed file) and its bbox does not touch the top edge
+(raw only); a background is 1920x1080.
+
+In the game, each image is a `ConditionSwitch` on `persistent.art_style` over the styles
+with a `processed`/`approved` rendition; the default style is the fallback (placeholder if
+it has none). An image with a single usable style is a plain image. First launch shows a
+style picker before the first scene (one button per style label); Preferences has a radio
+group to change it. A change applies on the next interaction without moving sprites.
 
 ### GUI template and licences
 
