@@ -20,5 +20,7 @@ Emotions: `neutral`, `joyful`, `melancholic`, `solemn`, `ironic`, `angry`, `fear
 Unknown line ids, characters, positions or emotions are errors at generation. See
 [adaptation-rules.md](adaptation-rules.md) for how these choices are meant to be used.
 
-Asset ids (`bg_*`, sprite names) are defined in the work's `assets/assets.json`; a missing
-image is replaced by a placeholder.
+Asset ids (`bg_*`, sprite names) and the art styles (`styles`, `default_style`, each with a
+label and prompts) are defined in the work's `assets/assets.json` (manifest v2, see
+[running.md](running.md)); a missing image is replaced by a placeholder. Style names and
+labels are work data: nothing about them is hard-coded in the pipeline.
