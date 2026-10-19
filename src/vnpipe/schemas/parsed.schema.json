@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vnpipe/parsed.schema.json",
+  "title": "Parsed play",
+  "description": "Deterministic parser output: scenes made of ordered lines.",
+  "type": "object",
+  "required": ["work", "source_sha256", "scenes"],
+  "additionalProperties": false,
+  "properties": {
+    "work": {"type": "string"},
+    "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "heading", "lines"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+          "heading": {"type": "string"},
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "kind", "speaker", "speaker_note", "speech", "stanza", "indent", "text", "src_line"],
+              "additionalProperties": false,
+              "properties": {
+                "id": {"type": "string", "pattern": "^[a-z0-9_]+_[0-9]{4}$", "description": "<scene id>_<4-digit index within scene>"},
+                "kind": {"enum": ["verse", "direction", "cast"], "description": "verse = spoken/recited text line; direction = stage direction (parenthesised or italic setting text); cast = list of characters under a scene heading"},
+                "speaker": {"type": ["string", "null"], "description": "Cast id from work.toml [speakers], null when nobody speaks (e.g. Dedicatoria, directions)"},
+                "speaker_note": {"type": ["string", "null"], "description": "Inline note in the speaker heading, e.g. 'solo', 'aterrado'"},
+                "speech": {"type": "integer", "minimum": 0, "description": "Index of the speech (speaker turn) within the scene; directions get the index of the speech they occur in or precede"},
+                "stanza": {"type": "integer", "minimum": 0, "description": "Stanza index within the speech (blank line = new stanza)"},
+                "indent": {"type": "integer", "minimum": 0, "description": "Leading spaces beyond the base verse indent (split verse lines are deeply indented)"},
+                "text": {"type": "string", "minLength": 1, "description": "Text with markup removed (_italics_ underscores stripped)"},
+                "src_line": {"type": "integer", "minimum": 1, "description": "1-based line number in the raw Gutenberg file"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

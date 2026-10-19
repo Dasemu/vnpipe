@@ -1,0 +1,699 @@
+{
+ "work": "mini",
+ "parsed_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+ "fallback_chunks": [],
+ "scenes": [
+  {
+   "id": "lyric",
+   "heading": "LÍRICA",
+   "lines": [
+    {
+     "id": "lyric_0001",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Tornáis de nuevo, imágenes flotantes,",
+     "src_line": 100,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": [],
+      "music": "sacred"
+     }
+    },
+    {
+     "id": "lyric_0002",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "que un día contemplé,",
+     "src_line": 101,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0003",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "¿Asiros podré feliz?",
+     "src_line": 102,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0004",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Venid, y envueltas en el velo,",
+     "src_line": 103,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0005",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "girad en derredor;",
+     "src_line": 104,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0006",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "el corazón aún late,",
+     "src_line": 105,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0007",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "si aspira vuestro aliento.",
+     "src_line": 106,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0008",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Hoy vuelven de otro tiempo",
+     "src_line": 107,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0009",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "la alegre historia,",
+     "src_line": 108,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0010",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 1,
+     "indent": 0,
+     "text": "Y los queridos seres",
+     "src_line": 120,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "lyric_0011",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 1,
+     "indent": 0,
+     "text": "que la dicha nos robó.",
+     "src_line": 121,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "melancholic",
+      "location": "dedication",
+      "time_of_day": "timeless",
+      "on_stage": []
+     }
+    }
+   ]
+  },
+  {
+   "id": "talk",
+   "heading": "CONVERSACIÓN",
+   "lines": [
+    {
+     "id": "talk_0001",
+     "kind": "cast",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "EL DIRECTOR, EL POETA",
+     "src_line": 200,
+     "ann": {
+      "speaker": null,
+      "kind": "narration",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "talk_0002",
+     "kind": "verse",
+     "speaker": "director",
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 2,
+     "text": "Decid, buenos amigos,",
+     "src_line": 201,
+     "ann": {
+      "speaker": "director",
+      "kind": "dialogue",
+      "emotion": "joyful",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0003",
+     "kind": "verse",
+     "speaker": "director",
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "de mi afán camaradas,",
+     "src_line": 202,
+     "ann": {
+      "speaker": "director",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0004",
+     "kind": "verse",
+     "speaker": "director",
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "¿qué pensáis [ahora]?",
+     "src_line": 203,
+     "ann": {
+      "speaker": "director",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0005",
+     "kind": "verse",
+     "speaker": "director",
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Es mi {anhelo} preferente",
+     "src_line": 204,
+     "ann": {
+      "speaker": "director",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0006",
+     "kind": "verse",
+     "speaker": "director",
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "al público dar gusto:",
+     "src_line": 205,
+     "ann": {
+      "speaker": "director",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0007",
+     "kind": "verse",
+     "speaker": "director",
+     "speaker_note": null,
+     "speech": 0,
+     "stanza": 0,
+     "indent": 0,
+     "text": "lo \"mejor\" que pueda.",
+     "src_line": 206,
+     "ann": {
+      "speaker": "director",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0008",
+     "kind": "verse",
+     "speaker": "poet",
+     "speaker_note": null,
+     "speech": 1,
+     "stanza": 0,
+     "indent": 26,
+     "text": "¡Vete, profano!",
+     "src_line": 207,
+     "ann": {
+      "speaker": "poet",
+      "kind": "dialogue",
+      "emotion": "angry",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       },
+       {
+        "character": "poet",
+        "position": "right"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0009",
+     "kind": "verse",
+     "speaker": "director",
+     "speaker_note": null,
+     "speech": 2,
+     "stanza": 0,
+     "indent": 20,
+     "text": "Calla, que oye.",
+     "src_line": 208,
+     "ann": {
+      "speaker": "director",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       },
+       {
+        "character": "poet",
+        "position": "right"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0010",
+     "kind": "direction",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 2,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Se aleja.",
+     "src_line": 209,
+     "ann": {
+      "speaker": "narrator",
+      "kind": "stage_direction",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       },
+       {
+        "character": "poet",
+        "position": "right"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0011",
+     "kind": "verse",
+     "speaker": "poet",
+     "speaker_note": null,
+     "speech": 3,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Mi pecho se oprime",
+     "src_line": 210,
+     "ann": {
+      "speaker": "poet",
+      "kind": "dialogue",
+      "emotion": "melancholic",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "poet",
+        "position": "center"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0012",
+     "kind": "verse",
+     "speaker": "poet",
+     "speaker_note": null,
+     "speech": 3,
+     "stanza": 0,
+     "indent": 0,
+     "text": "bajo tanto peso,",
+     "src_line": 211,
+     "ann": {
+      "speaker": "poet",
+      "kind": "dialogue",
+      "emotion": "melancholic",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "poet",
+        "position": "center"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0013",
+     "kind": "verse",
+     "speaker": "poet",
+     "speaker_note": null,
+     "speech": 3,
+     "stanza": 0,
+     "indent": 0,
+     "text": "y el ocaso llega.",
+     "src_line": 212,
+     "ann": {
+      "speaker": "poet",
+      "kind": "dialogue",
+      "emotion": "melancholic",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "poet",
+        "position": "center"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0014",
+     "kind": "verse",
+     "speaker": "lord",
+     "speaker_note": null,
+     "speech": 4,
+     "stanza": 0,
+     "indent": 0,
+     "text": "¡Mi siervo!",
+     "src_line": 213,
+     "ann": {
+      "speaker": "lord",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "poet",
+        "position": "right"
+       },
+       {
+        "character": "lord",
+        "position": "center"
+       }
+      ],
+      "music": "none"
+     }
+    },
+    {
+     "id": "talk_0015",
+     "kind": "verse",
+     "speaker": "lord",
+     "speaker_note": null,
+     "speech": 4,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Tentarlo puedes.",
+     "src_line": 214,
+     "ann": {
+      "speaker": "lord",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "poet",
+        "position": "right"
+       },
+       {
+        "character": "lord",
+        "position": "center"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0016",
+     "kind": "verse",
+     "speaker": "director",
+     "speaker_note": null,
+     "speech": 5,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Basta ya de charla.",
+     "src_line": 215,
+     "ann": {
+      "speaker": "director",
+      "kind": "dialogue",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       },
+       {
+        "character": "poet",
+        "position": "right"
+       }
+      ]
+     }
+    },
+    {
+     "id": "talk_0017",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 6,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Callan los pájaros;",
+     "src_line": 216,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "talk_0018",
+     "kind": "verse",
+     "speaker": null,
+     "speaker_note": null,
+     "speech": 6,
+     "stanza": 0,
+     "indent": 0,
+     "text": "la noche cae.",
+     "src_line": 217,
+     "ann": {
+      "speaker": "poet_voice",
+      "kind": "narration",
+      "emotion": "neutral",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": []
+     }
+    },
+    {
+     "id": "talk_0019",
+     "kind": "verse",
+     "speaker": "poet",
+     "speaker_note": null,
+     "speech": 7,
+     "stanza": 0,
+     "indent": 0,
+     "text": "Despierto.",
+     "src_line": 218,
+     "ann": {
+      "speaker": "poet",
+      "kind": "dialogue",
+      "emotion": "angry",
+      "location": "stage",
+      "time_of_day": "day",
+      "on_stage": [
+       {
+        "character": "director",
+        "position": "left"
+       },
+       {
+        "character": "poet",
+        "position": "right"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

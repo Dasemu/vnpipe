@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vnpipe/manifest.schema.json",
+  "title": "Asset manifest",
+  "type": "object",
+  "required": [
+    "base_prompt",
+    "templates",
+    "assets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "base_prompt": {
+      "type": "string"
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "prompt",
+          "source",
+          "file",
+          "sha256",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^(bg|sprite)_[a-z0-9_]+$",
+            "description": "bg_<location>[_<variant>] or sprite_<character>_<expression>"
+          },
+          "kind": {
+            "enum": [
+              "background",
+              "sprite"
+            ]
+          },
+          "character": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Asset-specific prompt; the full prompt sent is base_prompt + kind prompt + this"
+          },
+          "source": {
+            "enum": [
+              "chatgpt-web",
+              "zenvairo-media",
+              "placeholder",
+              "manual"
+            ]
+          },
+          "generation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Asset id used as reference image (identity consistency)"
+          },
+          "raw_file": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Original generated image, relative to the work's assets dir"
+          },
+          "file": {
+            "type": "string",
+            "description": "Final processed image used by the game, relative to the work's assets dir"
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "enum": [
+              "planned",
+              "generated",
+              "processed",
+              "approved",
+              "rejected",
+              "placeholder"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "templates": {
+      "type": "object",
+      "required": [
+        "background",
+        "sprite",
+        "variant"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Kind-specific prompt templates appended after base_prompt"
+    }
+  }
+}

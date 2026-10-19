@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vnpipe/annotated.schema.json",
+  "title": "Annotated play",
+  "description": "Output of `vnpipe annotate merge`: parsed lines plus one annotation each. The `ann` and line definitions duplicate annotation.schema.json and parsed.schema.json (schema.py has no cross-file registry); tests/test_annotation_schema.py guards against drift.",
+  "type": "object",
+  "required": [
+    "work",
+    "parsed_sha256",
+    "fallback_chunks",
+    "scenes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "work": {
+      "type": "string"
+    },
+    "parsed_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "fallback_chunks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Chunks filled with deterministic fallback annotations instead of LLM output"
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "heading",
+          "lines"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "heading": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/line"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "ann": {
+      "type": "object",
+      "required": [
+        "speaker",
+        "kind",
+        "emotion",
+        "location",
+        "time_of_day",
+        "on_stage"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "speaker": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Cast id; 'narrator' for stage directions, the work's lyric voice id for unattributed verse"
+        },
+        "kind": {
+          "enum": [
+            "dialogue",
+            "narration",
+            "stage_direction"
+          ]
+        },
+        "emotion": {
+          "enum": [
+            "neutral",
+            "joyful",
+            "melancholic",
+            "solemn",
+            "ironic",
+            "angry",
+            "fearful",
+            "ecstatic"
+          ]
+        },
+        "location": {
+          "type": "string"
+        },
+        "time_of_day": {
+          "enum": [
+            "dawn",
+            "day",
+            "dusk",
+            "night",
+            "timeless"
+          ]
+        },
+        "on_stage": {
+          "type": "array",
+          "description": "Characters visible (or present) while this line is shown, with stage position",
+          "items": {
+            "type": "object",
+            "required": [
+              "character",
+              "position"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "character": {
+                "type": "string"
+              },
+              "position": {
+                "$ref": "#/$defs/position"
+              }
+            }
+          }
+        },
+        "music": {
+          "enum": [
+            "contemplative",
+            "comic",
+            "sacred",
+            "ominous",
+            "mystical",
+            "none",
+            null
+          ],
+          "description": "Optional music mood; null = keep current"
+        }
+      }
+    },
+    "line": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "speaker",
+        "speaker_note",
+        "speech",
+        "stanza",
+        "indent",
+        "text",
+        "src_line",
+        "ann"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+_[0-9]{4}$",
+          "description": "<scene id>_<4-digit index within scene>"
+        },
+        "kind": {
+          "enum": [
+            "verse",
+            "direction",
+            "cast"
+          ],
+          "description": "verse = spoken/recited text line; direction = stage direction (parenthesised or italic setting text); cast = list of characters under a scene heading"
+        },
+        "speaker": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Cast id from work.toml [speakers], null when nobody speaks (e.g. Dedicatoria, directions)"
+        },
+        "speaker_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Inline note in the speaker heading, e.g. 'solo', 'aterrado'"
+        },
+        "speech": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index of the speech (speaker turn) within the scene; directions get the index of the speech they occur in or precede"
+        },
+        "stanza": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Stanza index within the speech (blank line = new stanza)"
+        },
+        "indent": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Leading spaces beyond the base verse indent (split verse lines are deeply indented)"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Text with markup removed (_italics_ underscores stripped)"
+        },
+        "src_line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based line number in the raw Gutenberg file"
+        },
+        "ann": {
+          "$ref": "#/$defs/ann"
+        }
+      }
+    },
+    "position": {
+      "enum": [
+        "left",
+        "center",
+        "right"
+      ]
+    }
+  }
+}

@@ -1,0 +1,65 @@
+name: Version bump
+
+on:
+  push:
+    branches: [development, main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: bump
+        run: |
+          set -e
+          CURRENT=$(cat VERSION)
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+
+          if [ "${{ github.ref_name }}" = "development" ]; then
+            PATCH=$((PATCH + 1))
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            # Did this push bring in commits that all come from development
+            # (i.e. an approved development -> main PR merge)?
+            PARENTS=$(git log -1 --pretty=%P HEAD)
+            PARENT_COUNT=$(echo "$PARENTS" | wc -w)
+            if [ "$PARENT_COUNT" -gt 1 ] && [ "${{ github.event.head_commit.message }}" != "" ] && git log -1 --pretty=%B | grep -qi "development"; then
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            else
+              PATCH=$((PATCH + 1))
+            fi
+          fi
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "$NEW_VERSION" > VERSION
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
+        run: |
+          git add VERSION
+          git commit -m "chore(release): v${{ steps.bump.outputs.new_version }} [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Merge main back into development
+        if: github.ref_name == 'main'
+        run: |
+          git fetch origin development
+          git checkout development
+          git merge --no-edit main
+          git push origin development

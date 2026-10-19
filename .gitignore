@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+.env
+# Local Ren'Py SDK and builds
+/tools
+build/
+# Local agent state (shared settings in .claude/settings.json are committed)
+.claude/settings.local.json
+.claude/worktrees/
+.mcp.json

@@ -1,0 +1,61 @@
+# Minimal work used by tests/test_renpy_gen.py (no assets: the generator falls back to placeholders).
+[work]
+id = "mini"
+title = "Mini"
+subtitle = "Fixture work"
+author = "A. Author"
+translator = "T. Translator"
+language = "es"
+
+[cast.narrator]
+name = ""
+color = "#d8cfc0"
+
+[cast.poet_voice]
+name = ""
+color = "#e8dcc2"
+sprite = false
+
+[cast.director]
+name = "El Director"
+color = "#c9a25b"
+sprite = true
+expressions = { neutral = "neutral", joyful = "pleased", angry = "worried" }
+
+[cast.poet]
+name = "El Poeta"
+color = "#8fa8c8"
+sprite = true
+expressions = { neutral = "neutral", melancholic = "neutral", angry = "indignant" }
+
+[cast.lord]
+name = "El Señor"
+color = "#fff4c8"
+sprite = false
+
+[staging.lyric]
+bg = "bg_dedication"
+mode = "nvl"
+
+[staging.talk]
+bg = "bg_theatre"
+mode = "adv"
+
+[[cues]]
+at = "talk_0014"
+bg = "bg_heaven"
+transition = "slow"
+tint = "dark"
+hide_all = true
+
+[[cues]]
+at = "talk_0016"
+mode = "nvl"
+
+[[cues]]
+at = "talk_0019"
+bg = "bg_theatre"
+transition = "flash"
+tint = "none"
+mode = "adv"
+shake = true
