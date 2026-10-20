@@ -45,6 +45,9 @@ EMOTIONS = (
     "ecstatic",
 )
 POSITIONS = ("left", "right", "center")  # order in which --from-parsed assigns positions
+# Stage slots tried, in order, when a character's position is already taken by another sprite;
+# the two inner slots only come into play with four or more sprites on stage.
+SLOTS = ("left", "right", "center", "left_mid", "right_mid")
 TRANSITIONS = {
     "dissolve": "dissolve",
     "fade": "fade",
@@ -532,6 +535,7 @@ class SceneWriter:
             if cid not in desired:
                 desired.append(cid)
         changed = self.hide_sprites([c for c in list(self.shown) if c not in desired])
+        moved = self.assign_slots(desired)
         for cid in desired:
             expressions = self.work.cast[cid].get("expressions", {})
             neutral = expressions.get("neutral", "neutral")
@@ -539,12 +543,35 @@ class SceneWriter:
                 expression = expressions.get(ann["emotion"], neutral)
             else:
                 expression = self.shown.get(cid, neutral)
-            if self.shown.get(cid) != expression:
+            if self.shown.get(cid) != expression or cid in moved:
                 self.emit(f"show {cid} {expression} at vn_{self.positions[cid]}")
                 self.shown[cid] = expression
                 changed = True
-        if changed:
+        if moved:
+            self.emit("with vn_move")
+        elif changed:
             self.emit("with dissolve")
+
+    def assign_slots(self, desired: list[str]) -> set[str]:
+        """Give every sprite on stage its own slot; return the shown sprites that had to move.
+
+        Sprites already on stage claim their slots first (in the order they appeared), so a
+        newcomer whose annotated position is taken gets the first free slot instead of being
+        drawn on top of someone else."""
+        order = [c for c in self.shown if c in desired] + [
+            c for c in desired if c not in self.shown
+        ]
+        taken: set[str] = set()
+        moved: set[str] = set()
+        for cid in order:
+            slot = self.positions[cid]
+            if slot in taken:
+                slot = next((s for s in SLOTS if s not in taken), slot)
+                if cid in self.shown:
+                    moved.add(cid)
+                self.positions[cid] = slot
+            taken.add(slot)
+        return moved
 
     # -- scene ---------------------------------------------------------------------------
 

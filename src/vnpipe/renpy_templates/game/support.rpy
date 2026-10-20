@@ -13,6 +13,13 @@ transform vn_center:
 transform vn_right:
     xalign 0.85 yalign 1.0
 
+## Extra slots for crowded scenes (four or more sprites).
+transform vn_left_mid:
+    xalign 0.32 yalign 1.0
+
+transform vn_right_mid:
+    xalign 0.68 yalign 1.0
+
 transform tint_none:
     matrixcolor IdentityMatrix()
 

@@ -575,3 +575,19 @@ def test_reading_comfort_defaults(project):
     assert "default preferences.text_cps = 40" in options
     assert "default preferences.afm_time = 15" in options
     assert "define config.has_music = True" in options
+
+
+def test_newcomer_never_overlaps(work, annotated):
+    ann = json.loads(json.dumps(annotated))
+    for line in ann["scenes"][1]["lines"]:  # everyone annotated at the same position
+        for entry in line["ann"]["on_stage"]:
+            entry["position"] = "left"
+    block = scene_block(renpy_gen.render_script(work, ann), "talk")
+    slots: dict[str, str] = {}
+    for ln in block:
+        if ln.startswith("show ") and " at vn_" in ln and not ln.startswith("show layer"):
+            slots[ln.split()[1]] = ln.rsplit("vn_", 1)[1]
+        elif ln.startswith("hide "):
+            slots.pop(ln.split()[1], None)
+        assert len(set(slots.values())) == len(slots), ln
+    assert len(slots) >= 1
