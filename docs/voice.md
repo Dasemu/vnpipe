@@ -54,7 +54,7 @@ Then `vnpipe renpy` ships the clips. `--scenes` defaults to `[voice].scenes`, el
 6. **Ren'Py**: `voice "voice/<id>.ogg"` before the first box of the speech, `voice sustain`
    before its other boxes (a stage direction inside the speech keeps the clip going). Clips
    live in `game/voice/`, never under `audio/`, so they are not music moods. The Preferences
-   screen has a Voice Volume slider (translate it in `tl/`). Credits get a "Voces"/"Voices"
+   screen has a Voice Volume slider (translated in `renpy_templates/tl/`). Credits get a "Voces"/"Voices"
    section from `[voice].credits` when clips ship.
 
 `voice/report/<scene>.txt` lists, per scene, the game speeches and their status, the ASR
