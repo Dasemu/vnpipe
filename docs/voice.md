@@ -20,7 +20,7 @@ mp3 + map ──cut (ffmpeg)──▶ voice/clips/<first line id>.ogg
 | Command | What it does |
 |---|---|
 | `voice fetch [--scenes a,b]` | Downloads the source text and the audio sections (skips existing files). |
-| `voice asr [--scenes] [--host H] [--force]` | `scp`s the sections and `scripts/asr.py` to the GPU host, runs faster-whisper (word timestamps), copies `voice/asr/NN.json` back. Skips sections already present. The only step that needs a GPU; commit the JSON so the rest runs anywhere. |
+| `voice asr [--scenes] [--host H] [--force]` | `scp`s the sections and `scripts/asr.py` to the GPU host, runs faster-whisper (word timestamps) on every `[voice.asr].devices` GPU in parallel (files balanced by size), copies `voice/asr/NN.json` back. Skips sections already present. The only step that needs a GPU; commit the JSON so the rest runs anywhere. |
 | `voice build [--scenes]` | Parses the source text into speeches, aligns them with the ASR words, maps them onto the game's speeches and writes `voice/map.json` and one report per scene. |
 | `voice cut [--scenes]` | Cuts and normalises one clip per `ok` speech. Cached by (audio, window, loudness). |
 
@@ -39,13 +39,16 @@ Then `vnpipe renpy` ships the clips. `--scenes` defaults to `[voice].scenes`, el
    matched ASR words are clustered (a stray match is dropped); the span grows by up to two
    unmatched edge words that are less than 0.3 s from it (misheard first/last words).
 3. **Speaker-sequence mapping** (`map_speeches`): global alignment over the two speaker-id
-   sequences; only equal ids pair up, closer lengths score higher. Pairs whose length ratio
+   sequences; only equal ids pair up, closer lengths score higher. Crowd labels are ordinal
+   ("the others", "second"), so ids listed in `[voice].ensembles` also pair with each other
+   (at a penalty); an individual never stands in for a crowd. Pairs whose length ratio
    (game words / source tokens) is outside 0.4-2.5 are dropped (merged or split speeches), unless
    the difference is at most 4 words (interjections).
 4. **Filters**: coverage (matched share of the speech's tokens) at least 0.6, and the duration
    must be plausible for the syllable count (1.6-9 syllables/s). Statuses in the map: `ok`,
    `unmapped`, `low-coverage`, `implausible-duration`, `cut-failed`. Only `ok` has a clip.
-5. **Cut**: window = span start-0.1 s .. end+0.25 s, shrunk to 45% of the silence to the
+5. **Cut**: `[voice.filters].<speaker>` is an ffmpeg `-af` chain (noise cleanup, EQ) applied
+   to that speaker's clips before loudnorm; it is part of the cut cache key. Window = span start-0.1 s .. end+0.25 s, shrunk to 45% of the silence to the
    neighbouring ASR word so another voice is never pulled in. Two-pass `loudnorm`
    (I=-18, linear), mono Opus 40 kbps. The clip's duration is checked against the window.
 6. **Ren'Py**: `voice "voice/<id>.ogg"` before the first box of the speech, `voice sustain`

@@ -95,6 +95,7 @@ text_url = "https://.../pg2229.txt"        # source-language text
 text_file = "data/raw/pg2229.txt"          # cache (gitignored)
 audio_url = "https://.../faust1_{nn:02d}_goethe_64kb.mp3"   # one file per section number
 audio_dir = "data/raw/librivox"            # NN.mp3 cache (gitignored)
+ensembles = ["chorus", "citizens"]         # cast ids of crowds/choruses: two of them may pair up
 credits = ["Lectura dramatizada de ..."]   # lines of the "Voces"/"Voices" credits section
 
 [voice.asr]                                # `vnpipe voice asr`: ssh host with faster-whisper
@@ -104,14 +105,23 @@ python = ".venv/bin/python"
 prelude = "export LD_LIBRARY_PATH=..."     # shell snippet run before python
 model = "medium"
 language = "de"
+devices = [0, 1]                           # GPUs used in parallel (default [0])
 
 [voice.speakers]                           # source-text speaker label (upper case) -> cast id
 "FAUST" = "faust"
+
+[voice.scene_speakers.<scene id>]          # same, overriding [voice.speakers] in one scene
+
+[voice.filters]                            # optional per-speaker ffmpeg -af chain, before loudnorm
+faust = "highpass=f=80,afftdn=nr=11"
 
 [[voice.sections]]                         # one per scene, in play order
 scene = "calle_1"                          # scene id
 nn = 10                                    # audio section number (audio_url, voice/asr/NN.json)
 heading = "Straße (I)"                     # heading line in the source text, searched in order
+# A section without speaker labels (a lyric) is one speech by `default_speaker`;
+# `skip_paragraphs` drops its first N paragraphs (the setting).
+# default_speaker = "poet_voice"; skip_paragraphs = 1
 ```
 
 Voice data lives in the work: `voice/asr/NN.json` (committed ASR cache), `voice/map.json`,
