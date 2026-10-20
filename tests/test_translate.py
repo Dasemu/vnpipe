@@ -12,6 +12,7 @@ from vnpipe.config import load_work
 from vnpipe.renpy_gen import BoxRecord
 from vnpipe.translate_align import (
     SETTING,
+    UnknownLabel,
     find_section_lines,
     group_units,
     parse_units,
@@ -79,6 +80,14 @@ def test_parse_units_speeches_and_directions():
         "Beneath such weight.",
         "(The evening comes),—",
     ]
+
+
+def test_a_speaker_list_maps_each_occurrence_of_a_label():
+    speakers = {**SPEAKERS, "MANAGER": ["director", "lord", "poet"]}
+    units = parse_units(section("talk"), speakers)
+    assert [u.speaker for u in units if u.label == "MANAGER"] == ["director", "lord", "poet"]
+    with pytest.raises(UnknownLabel, match="more than 2x"):
+        parse_units(section("talk"), {**SPEAKERS, "MANAGER": ["director", "lord"]})
 
 
 def test_parse_units_without_labels_is_one_speech():
@@ -196,6 +205,29 @@ def test_voice_follows_the_first_box_of_the_same_speaker():
         "    pass",
         "",
     ]
+
+
+def test_clips_follow_the_box_position_when_the_speaker_differs():
+    # an ensemble line ("chorus") shown by a named source speaker, and a speaker mismatch
+    says = ["girl", "student", "girl"]
+    clips = [("chorus", "a.ogg"), ("student", "b.ogg"), ("burgher", "c.ogg")]
+    assert renpy_tl.assign_clips(clips, says) == {0: "a.ogg", 1: "b.ogg", 2: "c.ogg"}
+    # a later speaker match is skipped if it leaves no box for the clips after it
+    assert renpy_tl.assign_clips([("x", "a"), ("y", "b")], ["y", "x"]) == {0: "a", 1: "b"}
+    assert renpy_tl.assign_clips([("y", "a")], ["x", "y"]) == {1: "a"}
+    with pytest.raises(ValueError, match="2 voice clips"):
+        renpy_tl.assign_clips([("x", "a"), ("x", "b")], ["x"])
+
+
+def test_changed_mapping_config_is_an_error(tl_work, tmp_path):
+    translate.write_json(translate.output_path(tl_work, "en"), translate.build(tl_work, "en"))
+    annotated = json.loads(tl_work.path("data/annotated.json").read_text(encoding="utf-8"))
+    data = json.loads(json.dumps(tl_work.data))
+    data["translations"]["en"]["names"]["lord"] = "God"  # names need no rebuild
+    renpy_gen.generate(type(tl_work)(tl_work.root, data), annotated, tmp_path / "ok")
+    data["translations"]["en"]["speakers"]["POET"] = "director"
+    with pytest.raises(ValueError, match="mapping configuration"):
+        renpy_gen.generate(type(tl_work)(tl_work.root, data), annotated, tmp_path / "p")
 
 
 @pytest.fixture

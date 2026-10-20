@@ -131,7 +131,7 @@ class UnknownLabel(ValueError):
 
 def parse_units(
     numbered: list[tuple[int, str]],
-    speakers: dict[str, str],
+    speakers: dict[str, str | list[str]],
     default_speaker: str | None = None,
     prose: bool = False,
     ignore: frozenset[str] = frozenset(),
@@ -177,6 +177,7 @@ def parse_units(
     while rows and (not rows[-1][1].strip() or ROMAN_RE.match(rows[-1][1].strip())):
         rows.pop()
     units: list[Unit] = []
+    occurrences: dict[str, int] = {}
     cur: Unit | None = None  # the open speech
     speaker: tuple[str, str] | None = None  # (label, cast id) of the current speech
     pending_blank = False
@@ -298,7 +299,13 @@ def parse_units(
                 continue
             if name not in speakers:
                 raise UnknownLabel(f"line {src}: unknown speaker label {name!r}")
-            speaker = (name, speakers[name])
+            cid = speakers[name]
+            if isinstance(cid, list):  # one cast id per occurrence of the label, in order
+                seen = occurrences[name] = occurrences.get(name, 0) + 1
+                if seen > len(cid):
+                    raise UnknownLabel(f"line {src}: label {name!r} occurs more than {len(cid)}x")
+                cid = cid[seen - 1]
+            speaker = (name, cid)
             cur = None
             started = True
             pending_blank = False

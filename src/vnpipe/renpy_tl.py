@@ -36,7 +36,7 @@ from vnpipe.renpy_gen import (
     scene_menu_titles,
     title_cards,
 )
-from vnpipe.translate import load_translation, translations
+from vnpipe.translate import config_digest, load_translation, translations
 from vnpipe.translate_align import game_units
 
 MAX_LINE_WORDS = 45  # a longer line (a prose paragraph) is split at sentence ends
@@ -82,6 +82,11 @@ def load_all(work: Work, annotated: dict[str, Any]) -> list[Translation]:
             raise ValueError(
                 f"translation {code!r} was built from another annotated.json: "
                 "run `vnpipe translate build` again"
+            )
+        if data["config_sha256"] != config_digest(cfg):
+            raise ValueError(
+                f"translation {code!r} was built with another [translations.{code}] mapping "
+                "configuration: run `vnpipe translate build` again"
             )
         ids = {ln["id"] for sc in annotated["scenes"] for ln in sc["lines"]}
         for sid, scene in data["scenes"].items():
@@ -157,17 +162,33 @@ def item_boxes(item: dict[str, Any], limit: int) -> list[list[str]]:
     return boxes
 
 
+def assign_clips(clips: list[tuple[str, str]], says: list[str]) -> dict[int, str]:
+    """Place a group's voice clips (in order, with the Spanish box's speaker) on its translated
+    say boxes (their speakers, in order): each clip goes to the next box of the same speaker
+    when one is left (keeping room for the clips after it), else to the next box. Every clip
+    is placed; a group with more clips than say boxes is an error."""
+    if len(clips) > len(says):
+        raise ValueError(f"{len(clips)} voice clips but only {len(says)} translated say boxes")
+    placed: dict[int, str] = {}
+    start = 0
+    for k, (speaker, path) in enumerate(clips):
+        last = len(says) - (len(clips) - k)  # leave a box for each later clip
+        at = next((i for i in range(start, last + 1) if says[i] == speaker), start)
+        placed[at] = path
+        start = at + 1
+    return placed
+
+
 class VoiceState:
     """Which speaker's clip the translated boxes keep playing."""
 
     def __init__(self) -> None:
         self.active: str | None = None
 
-    def statement(self, speaker: str, is_dir: bool, pending: list[tuple[str, str]]) -> str | None:
-        if not is_dir and pending and pending[0][0] == speaker:
-            path = pending.pop(0)[1]
+    def statement(self, speaker: str, is_dir: bool, clip: str | None) -> str | None:
+        if clip is not None:
             self.active = speaker
-            return f'voice "{path}"'
+            return f'voice "{clip}"'
         if self.active is not None and (is_dir or speaker == self.active):
             return "voice sustain"
         self.active = None
@@ -200,22 +221,30 @@ def render_scene_blocks(
             continue
         if not head.sustain:
             voice.active = None
-        pending = [(r.speaker, r.voice) for r in group if r.voice]
-        body: list[str] = []
+        clips = [(r.speaker, r.voice) for r in group if r.voice]
         limit = NVL_MAX_LINES if head.nvl else ADV_MAX_LINES
+        boxes: list[tuple[str, bool, list[str]]] = []
         for item in units[head.line_id]:
             speaker = item["speaker"]
             if speaker != "narrator" and speaker not in cast:
                 raise ValueError(f"translation {tl.code!r}: unknown speaker {speaker!r}")
             is_dir = item["kind"] == "dir"
-            for box in item_boxes(item, limit):
-                if head.nvl:
-                    body.append("nvl clear")
-                statement = voice.statement(speaker, is_dir, pending)
-                if statement:
-                    body.append(statement)
-                text = "\\n".join(escape_text(line) for line in box)
-                body.append(f'{char_var(speaker, nvl=head.nvl)} "{text}"')
+            boxes += [(speaker, is_dir, box) for box in item_boxes(item, limit)]
+        say_at = [i for i, (_, is_dir, _) in enumerate(boxes) if not is_dir]
+        try:
+            placed = assign_clips(clips, [boxes[i][0] for i in say_at])
+        except ValueError as exc:
+            raise ValueError(f"translation {tl.code!r}, {head.line_id}: {exc}") from None
+        clip_at = {say_at[k]: path for k, path in placed.items()}
+        body: list[str] = []
+        for i, (speaker, is_dir, box) in enumerate(boxes):
+            if head.nvl:
+                body.append("nvl clear")
+            statement = voice.statement(speaker, is_dir, clip_at.get(i))
+            if statement:
+                body.append(statement)
+            text = "\\n".join(escape_text(line) for line in box)
+            body.append(f'{char_var(speaker, nvl=head.nvl)} "{text}"')
         out.append(f"translate {tl.language} {head.line_id}:")
         out += [f"    {ln}" for ln in body]
         out.append("")

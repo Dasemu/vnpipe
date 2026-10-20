@@ -42,6 +42,9 @@ their own text, `grouped` ones show nothing; `suspects` are groups whose size ra
 the scene's. `translate status --scene ID` prints the alignment side by side. Fix a wrong
 pairing with an override that quotes the translation verbatim (see below); the build fails if
 the quote does not start exactly one unit. A scene is `complete` when its first unit has text.
+The JSON stores hashes of `data/annotated.json` and of the mapping keys of
+`[translations.<code>]` (sections, speakers, overrides, ...); `vnpipe renpy` refuses a
+mapping built from other ones (names and strings need no rebuild).
 
 ## Ren'Py output
 
@@ -49,8 +52,10 @@ Every say statement carries an explicit `id` (its first line id), and each trans
 `translate <language> <id>:` for all of them: the first box of a game unit with text shows the
 translated units (split into boxes like the original: stanzas, at most 4 lines in ADV and 8 in
 NVL, long prose paragraphs cut at sentence ends), every other box is `pass`. The voice clips
-are shared: a clip that starts in the group starts on the first translated box of the same
-speaker and `voice sustain` carries it over that speaker's next boxes and directions.
+are shared: each clip of the group, in order, starts on the next translated say box of the same
+speaker (or, if none is left, on the next say box), and `voice sustain` carries it over that
+speaker's next boxes and directions. Every clip is placed; a group with more clips than
+translated say boxes is an error.
 
 Names, title cards, the scene list, About and the art-style labels go to `translate <language>
 strings:`; equal original strings that translate differently get `{#scene}` tags. The credits
@@ -83,7 +88,8 @@ ensembles = ["chorus"]               # default: [voice].ensembles
 [translations.en.speakers]           # speaker label as printed -> cast id
 "MEPHISTOPHELES" = "mephisto"
 
-[translations.en.scene_speakers.<scene id>]   # per-scene overrides of `speakers`
+[translations.en.scene_speakers.<scene id>]   # per-scene overrides of `speakers`; a list
+"THE FIRST" = ["artisans", "servant_girls"]  # gives one cast id per occurrence, in order
 
 [translations.en.direction_labels]   # labels printed like a speaker but read as a direction;
 "FAUST AND WAGNER" = ""              # the text after is spoken by this cast id ("" = none)

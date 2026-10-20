@@ -51,6 +51,26 @@ def translation_cfg(work: Work, code: str) -> dict[str, Any]:
     return cfg
 
 
+# The keys of [translations.<code>] that change the mapping (the others, such as names and
+# strings, are read by `vnpipe renpy` directly).
+MAPPING_KEYS = (
+    "text_file",
+    "sections",
+    "speakers",
+    "scene_speakers",
+    "direction_labels",
+    "ignore_lines",
+    "ensembles",
+    "overrides",
+)
+
+
+def config_digest(cfg: dict[str, Any]) -> str:
+    """Hash of the mapping configuration, stored in the JSON to detect a stale build."""
+    picked = {k: cfg[k] for k in MAPPING_KEYS if k in cfg}
+    return hashlib.sha256(json.dumps(picked, sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def output_path(work: Work, code: str) -> Path:
     return work.path(f"{OUT_DIR}/{code}.json")
 
@@ -93,9 +113,10 @@ def build_scene(
     sid = scene["id"]
     speakers = {**cfg.get("speakers", {}), **cfg.get("scene_speakers", {}).get(sid, {})}
     cast = work.cast
-    for label, cid in {**speakers, **cfg.get("direction_labels", {})}.items():
-        if cid and cid not in cast:
-            raise SystemExit(f"translate: label {label!r} maps to unknown cast id {cid!r}")
+    for label, value in {**speakers, **cfg.get("direction_labels", {})}.items():
+        for cid in value if isinstance(value, list) else [value]:
+            if cid and cid not in cast:
+                raise SystemExit(f"translate: label {label!r} maps to unknown cast id {cid!r}")
     scene_cfg = next((s for s in work.data.get("scenes", []) if s["id"] == sid), {})
     source = parse_units(
         numbered,
@@ -207,6 +228,7 @@ def build(work: Work, code: str) -> dict[str, Any]:
         "annotated_sha256": hashlib.sha256(
             work.path("data/annotated.json").read_bytes()
         ).hexdigest(),
+        "config_sha256": config_digest(cfg),
         "scenes": scenes,
     }
     validate(data, "translation")
