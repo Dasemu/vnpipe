@@ -8,7 +8,7 @@ import argparse
 import importlib
 from pathlib import Path
 
-STAGE_MODULES = ["text", "annotate", "assets", "renpy_gen", "voice"]
+STAGE_MODULES = ["text", "annotate", "assets", "renpy_gen", "voice", "translate"]
 
 
 def main(argv: list[str] | None = None) -> int:
