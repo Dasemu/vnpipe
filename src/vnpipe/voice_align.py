@@ -7,6 +7,7 @@ No I/O here; ``vnpipe.voice`` wires it to files, ffmpeg and the CLI.
 import math
 import re
 import unicodedata
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import Any
@@ -137,6 +138,61 @@ class Span:
         return self.matched / self.total if self.total else 0.0
 
 
+def match_tokens(a: list[str], b: list[str], n: int = 3) -> list[tuple[int, int]]:
+    """Monotonic token matches ``(i, j)`` with ``a[i] == b[j]``.
+
+    Plain ``SequenceMatcher`` is far too slow on a whole section (thousands of tokens, most of
+    them "und"/"die"), so first anchor on word n-grams that occur exactly once on each side
+    (longest increasing run), then match only the stretches between anchors."""
+    keys_a: dict[tuple[str, ...], list[int]] = {}
+    keys_b: dict[tuple[str, ...], list[int]] = {}
+    for i in range(len(a) - n + 1):
+        keys_a.setdefault(tuple(a[i : i + n]), []).append(i)
+    for j in range(len(b) - n + 1):
+        keys_b.setdefault(tuple(b[j : j + n]), []).append(j)
+    pairs = sorted(
+        (ia[0], keys_b[k][0])
+        for k, ia in keys_a.items()
+        if len(ia) == 1 and len(keys_b.get(k, ())) == 1
+    )
+    # longest increasing subsequence on the b positions
+    tails: list[int] = []
+    ends: list[int] = []
+    prev = [-1] * len(pairs)
+    for idx, (_, j) in enumerate(pairs):
+        pos = bisect_left(tails, j)
+        if pos == len(tails):
+            tails.append(j)
+            ends.append(idx)
+        else:
+            tails[pos] = j
+            ends[pos] = idx
+        prev[idx] = ends[pos - 1] if pos else -1
+    chain: list[tuple[int, int]] = []
+    idx = ends[-1] if ends else -1
+    while idx >= 0:
+        chain.append(pairs[idx])
+        idx = prev[idx]
+    chain.reverse()
+
+    matches: list[tuple[int, int]] = []
+    ia = jb = 0  # next unmatched positions
+
+    def fill(a_end: int, b_end: int) -> None:
+        blocks = SequenceMatcher(None, a[ia:a_end], b[jb:b_end], autojunk=False)
+        for x, y, size in blocks.get_matching_blocks():
+            matches.extend((ia + x + k, jb + y + k) for k in range(size))
+
+    for i, j in chain:
+        if i < ia or j < jb:
+            continue  # overlaps the previous anchor
+        fill(i, j)
+        matches.extend((i + k, j + k) for k in range(n))
+        ia, jb = i + n, j + n
+    fill(len(a), len(b))
+    return matches
+
+
 def align(
     speeches: list[Speech], asr_words: list[list[Any]], max_gap: int = 12
 ) -> list[Span | None]:
@@ -152,13 +208,11 @@ def align(
         de.extend(sp.tokens)
         owner.extend([sp.index] * len(sp.tokens))
     asr = [normalise(w[0]) for w in asr_words]
-    blocks = SequenceMatcher(None, de, asr, autojunk=False).get_matching_blocks()
     matches: dict[int, list[tuple[int, int]]] = {sp.index: [] for sp in speeches}
     claimed = set()
-    for a, b, size in blocks:
-        for k in range(size):
-            matches[owner[a + k]].append((a + k, b + k))
-            claimed.add(b + k)
+    for i, j in match_tokens(de, asr):
+        matches[owner[i]].append((i, j))
+        claimed.add(j)
     offsets: dict[int, int] = {}
     pos = 0
     for sp in speeches:

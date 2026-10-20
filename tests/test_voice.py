@@ -172,3 +172,14 @@ def test_map_speeches_pairs_ensemble_ids_in_sequence():
     assert map_speeches(source, targets, ensembles) == {0: 0, 1: 1, 2: 2}
     # an individual never stands in for an ensemble
     assert map_speeches([sp("faust", 10)], [Target(0, "citizens", 10, "x")], ensembles) == {}
+
+
+def test_match_tokens_anchors_and_fills():
+    from vnpipe.voice_align import match_tokens
+
+    a = ["und", "die", "der", "ein", "wort", "a", "b", "c", "d", "e", "f", "g", "x", "y", "z"]
+    b = ["und", "die", "ein", "wort", "a", "b", "c", "d", "e", "f", "g", "q", "y", "z"]
+    pairs = match_tokens(a, b)
+    assert all(a[i] == b[j] for i, j in pairs)
+    assert [i for i, _ in pairs] == sorted(i for i, _ in pairs)
+    assert len(pairs) >= 12
