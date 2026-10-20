@@ -948,9 +948,10 @@ testcase default:
 """
 
 
-def render_e2e(styles: dict[str, Any], ui: dict[str, str]) -> str:
+def render_e2e(styles: dict[str, Any]) -> str:
     """The playthrough testcase; with a style choice it also exercises the first-launch picker
-    (picking the last style, so the non-default switch branch is the one in use)."""
+    (picking the last style, so the non-default switch branch is the one in use). Menus are
+    opened by action, not label, so the test also runs in a translation (RENPY_LANGUAGE)."""
     pick = ""
     if len(styles) > 1:
         sid, cfg = list(styles.items())[-1]
@@ -961,11 +962,11 @@ def render_e2e(styles: dict[str, Any], ui: dict[str, str]) -> str:
             f"    assert eval (persistent.art_style == {sid!r})\n"
         )
     menus = (
-        f"    click {_plain_quote(ui['credits'])}\n"
+        '    run ShowMenu("vn_credits")\n'
         '    assert screen "vn_credits"\n'
         "    run Return()\n"
         '    assert screen "main_menu"\n'
-        f"    click {_plain_quote(ui['scenes'])}\n"
+        '    run ShowMenu("vn_scene_select")\n'
         '    assert screen "vn_scene_select"\n'
         "    run Return()\n"
         '    assert screen "main_menu"\n'
@@ -1275,7 +1276,7 @@ def generate(
     test_file = game / E2E_FILE
     test_file.unlink(missing_ok=True)
     if with_test:
-        write_text(test_file, render_e2e(styles, ui))
+        write_text(test_file, render_e2e(styles))
         written.append(test_file)
     records: dict[str, list[BoxRecord]] = {}
     credits_tl = {
