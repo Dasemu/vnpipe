@@ -28,6 +28,7 @@ redone unless their input changes.
 | Text | `fetch`, `parse` | `text.py` |
 | Annotation | `annotate run/status/prompt/merge` ([details](annotation.md)) | `annotate.py` |
 | Assets | `assets prompt/import/process/check/status/placeholders/sheet/migrate` | `assets.py` |
+| Voice (optional) | `voice fetch/asr/build/cut` ([details](voice.md)) | `voice.py`, `voice_align.py` |
 | Ren'Py | `renpy [--from-parsed] [--with-test] [--out DIR]` | `renpy_gen.py` |
 
 `--work DIR` (before the subcommand) selects the work root; default is the current directory.
@@ -40,6 +41,7 @@ redone unless their input changes.
 | `src/vnpipe/schemas/` | JSON Schemas: parsed text, annotated text, asset manifest |
 | `src/vnpipe/prompts/annotate.md` | Annotator instructions and vocabularies (its hash versions the cache) |
 | `src/vnpipe/renpy_templates/` | Default Ren'Py GUI, screens and fonts |
+| `scripts/asr.py` | Standalone faster-whisper script run on a GPU host by `voice asr` |
 | `tests/` | Unit tests on `tests/fixtures/` (a mini work); the Ren'Py SDK tests need `RENPY_SDK` |
 
 ## Asset manifest

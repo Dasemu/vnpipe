@@ -17,6 +17,7 @@ A work is a directory containing `work.toml`, plus the folders the pipeline fill
 | `[staging.<scene id>]` | `bg` (background shown after the title card), `mode` (`adv` or `nvl`), `cast = { <char> = "left\|center\|right" }` pins sprite characters for the whole scene, `music` (see Audio; ignores the annotation moods for this scene). |
 | `[[cues]]` | `at` (line id; fires right before it) plus any of `bg`, `transition` (`dissolve`, `fade`, `flash`, `slow`), `tint` (`none`, `dark`, `red`), `mode`, `hide_all`, `shake`, `move = { <char> = "<pos>" }`, `music` (see Audio; applies from that line until the next cue or the scene end). |
 | `[[overrides]]` | `from`, `to` (inclusive line ids in one scene), `emotion`: forces the emotion before expression mapping. |
+| `[voice]` | Voice track (see Voice below): `text_url`, `text_file`, `audio_url` (with `{nn}`), `audio_dir`, `scenes`, `credits`, `[voice.asr]`, `[voice.speakers]`, `[[voice.sections]]`. |
 
 ### Text structure
 
@@ -82,3 +83,47 @@ mood (`ann.music`), unless overridden:
   exists). Attributions are printed verbatim. Labels follow `[work].language`.
 - Defaults: `preferences.text_cps = 40`, `afm_time = 15`, `window auto`, a blinking
   click-to-continue arrow. Verse boxes stay at 4 lines; NVL keeps stanza pages.
+
+### Voice
+
+Optional; the full pipeline is in [voice.md](voice.md). Everything is work data:
+
+```toml
+[voice]
+scenes = ["calle_1"]                       # what `vnpipe voice` processes by default (omit: all)
+text_url = "https://.../pg2229.txt"        # source-language text
+text_file = "data/raw/pg2229.txt"          # cache (gitignored)
+audio_url = "https://.../faust1_{nn:02d}_goethe_64kb.mp3"   # one file per section number
+audio_dir = "data/raw/librivox"            # NN.mp3 cache (gitignored)
+ensembles = ["chorus", "citizens"]         # cast ids of crowds/choruses: two of them may pair up
+credits = ["Lectura dramatizada de ..."]   # lines of the "Voces"/"Voices" credits section
+
+[voice.asr]                                # `vnpipe voice asr`: ssh host with faster-whisper
+host = "user@gpu-host"                     # (or --host)
+workdir = "/opt/asr"                       # cwd on the host; files go to <workdir>/vnpipe-asr/
+python = ".venv/bin/python"
+prelude = "export LD_LIBRARY_PATH=..."     # shell snippet run before python
+model = "medium"
+language = "de"
+devices = [0, 1]                           # GPUs used in parallel (default [0])
+
+[voice.speakers]                           # source-text speaker label (upper case) -> cast id
+"FAUST" = "faust"
+
+[voice.scene_speakers.<scene id>]          # same, overriding [voice.speakers] in one scene
+
+[voice.filters]                            # optional per-speaker ffmpeg -af chain, before loudnorm
+faust = "highpass=f=80,afftdn=nr=11"
+
+[[voice.sections]]                         # one per scene, in play order
+scene = "calle_1"                          # scene id
+nn = 10                                    # audio section number (audio_url, voice/asr/NN.json)
+heading = "Straße (I)"                     # heading line in the source text, searched in order
+# A section without speaker labels (a lyric) is one speech by `default_speaker`;
+# `skip_paragraphs` drops its first N paragraphs (the setting).
+# default_speaker = "poet_voice"; skip_paragraphs = 1
+```
+
+Voice data lives in the work: `voice/asr/NN.json` (committed ASR cache), `voice/map.json`,
+`voice/report/<scene>.txt`, `voice/clips/*.ogg`. `vnpipe renpy` copies the clips to
+`game/voice/` and credits them when `[voice].credits` is set.
