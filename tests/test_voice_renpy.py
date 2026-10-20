@@ -53,7 +53,12 @@ def test_voice_clips_are_copied_outside_audio_and_credited(tmp_path):
                 "scenes": {
                     "talk": {
                         "entries": [
-                            {"speech": 2, "first_line": "talk_0009", "file": "voice/talk_0009.ogg"}
+                            {
+                                "speech": 2,
+                                "first_line": "talk_0009",
+                                "file": "voice/talk_0009.ogg",
+                                "cut_key": "k",
+                            }
                         ]
                     }
                 },
@@ -66,6 +71,12 @@ def test_voice_clips_are_copied_outside_audio_and_credited(tmp_path):
     data["voice"] = {"credits": ["Lectura de [LibriVox]"]}
     work = type(base)(root=root, data=data)
     assert voice_mod.voice_files(work) == {"talk": {2: "voice/talk_0009.ogg"}}
+    annotated = json.loads((FIXTURES / "annotated_mini.json").read_text(encoding="utf-8"))
+    assert voice_mod.voice_files(work, annotated) == {"talk": {2: "voice/talk_0009.ogg"}}
+    talk = next(s for s in annotated["scenes"] if s["id"] == "talk")
+    for ln in talk["lines"]:  # a re-parse renumbers the speeches
+        ln["speech"] += 1
+    assert voice_mod.voice_files(work, annotated) == {}  # never a clip on the wrong speech
     written = voice_mod.copy_voice(work, tmp_path / "out")
     assert [p.relative_to(tmp_path / "out").as_posix() for p in written] == [
         "game/voice/talk_0009.ogg"
@@ -104,3 +115,16 @@ def test_cut_clip_applies_the_speaker_chain_before_loudnorm(monkeypatch, tmp_pat
     (tmp_path / "x.part.ogg").write_bytes(b"")
     voice_mod.cut_clip(Path("a.mp3"), 1.0, 3.0, tmp_path / "x.ogg")
     assert all(c[c.index("-af") + 1].startswith("loudnorm=") for c in calls)
+
+
+def test_uncut_clip_is_not_played(tmp_path):
+    root = tmp_path / "w"
+    (root / "voice/clips").mkdir(parents=True)
+    (root / "voice/clips/talk_0009.ogg").write_bytes(b"OggS")  # left over from an older cut
+    entry = {"speech": 2, "first_line": "talk_0009", "file": "voice/talk_0009.ogg"}
+    (root / "voice/map.json").write_text(
+        json.dumps({"version": 1, "scenes": {"talk": {"entries": [entry]}}}), encoding="utf-8"
+    )
+    base = load_work(FIXTURES / "mini_work")
+    work = type(base)(root=root, data=base.data)
+    assert voice_mod.voice_files(work) == {}

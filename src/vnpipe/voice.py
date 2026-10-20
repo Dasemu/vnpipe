@@ -13,6 +13,7 @@ Stages (all deterministic and cached on disk; see docs/voice.md):
 
 import argparse
 import json
+import shlex
 import shutil
 import subprocess
 import urllib.request
@@ -112,7 +113,10 @@ def cmd_asr(args: argparse.Namespace) -> int:
     host = args.host or cfg.get("host")
     if not host:
         raise SystemExit("voice asr: pass --host or set [voice.asr].host")
-    remote = cfg.get("workdir", ".") + "/vnpipe-asr"
+    if host.startswith("-"):
+        raise SystemExit(f"voice asr: invalid host {host!r}")
+    workdir = cfg.get("workdir", ".")
+    remote = workdir + "/vnpipe-asr"
     sections = selected_sections(work, args.scenes)
     todo = [s for s in sections if args.force or not asr_path(work, s).exists()]
     if not todo:
@@ -120,7 +124,7 @@ def cmd_asr(args: argparse.Namespace) -> int:
         return 0
     ssh = ["ssh", "-o", "BatchMode=yes", host]
     scp = ["scp", "-o", "BatchMode=yes"]
-    run([*ssh, f"mkdir -p {remote}/in {remote}/out"])
+    run([*ssh, f"mkdir -p {shlex.quote(remote + '/in')} {shlex.quote(remote + '/out')}"])
     run([*scp, str(ASR_SCRIPT), f"{host}:{remote}/asr.py"])
     names = []
     for section in todo:
@@ -141,10 +145,12 @@ def cmd_asr(args: argparse.Namespace) -> int:
 
     def transcribe(device: int, files: list[str]) -> str:
         script = (
-            f"cd {cfg.get('workdir', '.')} && {cfg.get('prelude', 'true')} && "
+            f"cd {shlex.quote(workdir)} && {cfg.get('prelude', 'true')} && "
             f"{cfg.get('python', 'python')} vnpipe-asr/asr.py --out vnpipe-asr/out "
-            f"--model {cfg.get('model', 'medium')} --language {cfg.get('language', 'de')} "
-            f"--device-index {device} " + " ".join(f"vnpipe-asr/{n}" for n in files)
+            f"--model {shlex.quote(str(cfg.get('model', 'medium')))} "
+            f"--language {shlex.quote(str(cfg.get('language', 'de')))} "
+            f"--device-index {int(device)} "
+            + " ".join(shlex.quote(f"vnpipe-asr/{n}") for n in files)
         )
         return run([*ssh, script]).stdout.strip()
 
@@ -408,15 +414,28 @@ def cmd_cut(args: argparse.Namespace) -> int:
 # --- used by `vnpipe renpy` ----------------------------------------------------------------
 
 
-def voice_files(work: Work) -> dict[str, dict[int, str]]:
-    """scene id -> {speech index: path relative to ``game/``} for clips that exist."""
+def voice_files(work: Work, annotated: dict[str, Any] | None = None) -> dict[str, dict[int, str]]:
+    """scene id -> {speech index: path relative to ``game/``} for clips that exist.
+
+    A clip counts only if it was cut for the current map entry (``cut_key``) and, when
+    ``annotated`` is given, the speech still starts on the line the clip was cut for, so a
+    re-parse that shifts speech indices never plays a clip on the wrong speech."""
     voice_map = load_json(work.path(MAP_FILE), None)
     if voice_map is None:
         return {}
+    scenes = {s["id"]: s for s in annotated["scenes"]} if annotated else {}
     found: dict[str, dict[int, str]] = {}
     for scene_id, result in voice_map["scenes"].items():
+        first_lines = None
+        if annotated is not None:
+            scene = scenes.get(scene_id)
+            first_lines = {t.speech: t.first_line for t in game_targets(scene)} if scene else {}
         for entry in result["entries"]:
-            if entry.get("file") and work.path(f"{CLIPS_DIR}/{entry['first_line']}.ogg").is_file():
+            if not (entry.get("file") and entry.get("cut_key")):
+                continue
+            if first_lines is not None and first_lines.get(entry["speech"]) != entry["first_line"]:
+                continue
+            if work.path(f"{CLIPS_DIR}/{entry['first_line']}.ogg").is_file():
                 found.setdefault(scene_id, {})[entry["speech"]] = entry["file"]
     return found
 

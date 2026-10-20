@@ -1077,7 +1077,10 @@ def generate(
         ("characters.rpy", render_characters(work)),
         ("images.rpy", render_images(entries, title_cards(work, annotated))),
         ("menu_data.rpy", render_menu_data(work, annotated, manifest)),
-        ("script.rpy", render_script(work, annotated, scan_audio(out), voice_files(work))),
+        (
+            "script.rpy",
+            render_script(work, annotated, scan_audio(out), voice_files(work, annotated)),
+        ),
     ):
         write_text(game / name, text)
         written.append(game / name)
