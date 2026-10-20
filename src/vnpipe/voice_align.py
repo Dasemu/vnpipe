@@ -77,10 +77,18 @@ class Speech:
     tokens: list[str] = field(default_factory=list)
 
 
-def parse_speeches(section: str, speakers: dict[str, str]) -> list[Speech]:
+def parse_speeches(
+    section: str,
+    speakers: dict[str, str],
+    default_speaker: str | None = None,
+    skip_paragraphs: int = 0,
+) -> list[Speech]:
     """Speeches of one section. ``speakers`` maps the printed upper-case label (without its
     parenthetical) to a cast id. Stage directions ``( ... )`` are dropped from the text; the
-    setting block before the first label is ignored."""
+    setting block before the first label is ignored.
+
+    A section with no speaker label at all (a lyric, a song) is one speech by
+    ``default_speaker``, after dropping its first ``skip_paragraphs`` paragraphs (the setting)."""
     marked = _LABEL.sub(lambda m: f"\x00{m.group(1)}\x00", section)
     marked = re.sub(r"\([^)]*\)", " ", marked)
     speeches: list[Speech] = []
@@ -95,6 +103,10 @@ def parse_speeches(section: str, speakers: dict[str, str]) -> list[Speech]:
         if tokens:
             speeches.append(Speech(len(speeches), label, speakers.get(label), text, tokens))
 
+    if default_speaker and "\x00" not in marked:
+        paragraphs = [p for p in re.split(r"\n\s*\n", marked.strip()) if p.strip()]
+        text = " ".join(" ".join(paragraphs[skip_paragraphs:]).split())
+        return [Speech(0, "", default_speaker, text, tokenize(text))]
     for raw in marked.splitlines():
         line = raw.strip()
         if line.startswith("\x00") and line.endswith("\x00"):
@@ -231,26 +243,30 @@ class Target:
 def map_speeches(
     source: list[Speech],
     targets: list[Target],
+    ensembles: frozenset[str] = frozenset(),
     min_ratio: float = 0.4,
     max_ratio: float = 2.5,
     short: int = 4,
 ) -> dict[int, int]:
     """Map target speech index -> source speech index.
 
-    Global alignment over the two speaker sequences: only equal speaker ids pair up, the
-    others are gaps. Pairs score higher the closer their lengths are, so a merge/split by
-    the translator resolves to the best partner. Pairs whose length ratio (target words /
-    source tokens) is outside ``[min_ratio, max_ratio]`` are dropped afterwards (they are
-    merges or splits, where a clip would not match the text), unless the two speeches differ
+    Global alignment over the two speaker sequences: only equal speaker ids pair up (or two
+    ids of ``ensembles``, at a penalty), the others are gaps. Pairs score higher the closer
+    their lengths are, so a merge/split by the translator resolves to the best partner. Pairs
+    whose length ratio (target words / source tokens) is outside ``[min_ratio, max_ratio]``
+    are dropped afterwards (merges or splits, where a clip would not match the text), unless
+    the two speeches differ
     by at most ``short`` words (interjections: the ratio means nothing there)."""
     n, m = len(targets), len(source)
     gap = -1.0
 
     def score(i: int, j: int) -> float | None:
-        if targets[i].speaker != source[j].speaker:
+        a, b = targets[i].speaker, source[j].speaker
+        if a != b and not (a in ensembles and b in ensembles):
             return None
         ratio = targets[i].words / max(1, len(source[j].tokens))
-        return 4.0 - min(3.0, abs(math.log2(max(ratio, 1e-3))) * 2)
+        # two different ensemble ids may be the same crowd (labels are ordinal: "the others")
+        return 4.0 - (0.0 if a == b else 1.5) - min(3.0, abs(math.log2(max(ratio, 1e-3))) * 2)
 
     table = [[0.0] * (m + 1) for _ in range(n + 1)]
     for i in range(1, n + 1):

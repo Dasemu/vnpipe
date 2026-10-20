@@ -74,3 +74,33 @@ def test_voice_clips_are_copied_outside_audio_and_credited(tmp_path):
     (root / "voice/clips/talk_0009.ogg").unlink()  # no clip, no credit, no voice
     assert voice_mod.voice_files(work) == {}
     assert "Voces" not in dict(renpy_gen.credits_sections(work, None))
+
+
+def test_cut_clip_applies_the_speaker_chain_before_loudnorm(monkeypatch, tmp_path):
+    calls = []
+
+    class Result:
+        stderr = json.dumps(
+            {
+                "input_i": "-20",
+                "input_tp": "-3",
+                "input_lra": "5",
+                "input_thresh": "-30",
+                "target_offset": "0.1",
+            }
+        )
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return Result()
+
+    monkeypatch.setattr(voice_mod, "run", fake_run)
+    (tmp_path / "x.part.ogg").write_bytes(b"")
+    voice_mod.cut_clip(Path("a.mp3"), 1.0, 3.0, tmp_path / "x.ogg", "highpass=f=80")
+    filters = [c[c.index("-af") + 1] for c in calls]
+    assert len(filters) == 2
+    assert all(f.startswith("highpass=f=80,loudnorm=") for f in filters)
+    calls.clear()
+    (tmp_path / "x.part.ogg").write_bytes(b"")
+    voice_mod.cut_clip(Path("a.mp3"), 1.0, 3.0, tmp_path / "x.ogg")
+    assert all(c[c.index("-af") + 1].startswith("loudnorm=") for c in calls)

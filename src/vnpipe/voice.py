@@ -16,6 +16,7 @@ import json
 import shutil
 import subprocess
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -128,13 +129,29 @@ def cmd_asr(args: argparse.Namespace) -> int:
             raise SystemExit(f"asr: {src} missing; run `vnpipe voice fetch`")
         run([*scp, str(src), f"{host}:{remote}/in/{src.name}"])
         names.append(f"in/{src.name}")
-    script = (
-        f"cd {cfg.get('workdir', '.')} && {cfg.get('prelude', 'true')} && "
-        f"{cfg.get('python', 'python')} vnpipe-asr/asr.py --out vnpipe-asr/out "
-        f"--model {cfg.get('model', 'medium')} --language {cfg.get('language', 'de')} "
-        + " ".join(f"vnpipe-asr/{n}" for n in names)
-    )
-    print(run([*ssh, script]).stdout.strip())
+    devices = cfg.get("devices", [0])
+    groups: list[list[str]] = [[] for _ in devices]
+    loads = [0] * len(devices)
+    for name in sorted(
+        names, key=lambda n: -work.path(f"{voice_cfg(work)['audio_dir']}/{n[3:]}").stat().st_size
+    ):
+        i = loads.index(min(loads))  # biggest first onto the least loaded device
+        groups[i].append(name)
+        loads[i] += work.path(f"{voice_cfg(work)['audio_dir']}/{name[3:]}").stat().st_size
+
+    def transcribe(device: int, files: list[str]) -> str:
+        script = (
+            f"cd {cfg.get('workdir', '.')} && {cfg.get('prelude', 'true')} && "
+            f"{cfg.get('python', 'python')} vnpipe-asr/asr.py --out vnpipe-asr/out "
+            f"--model {cfg.get('model', 'medium')} --language {cfg.get('language', 'de')} "
+            f"--device-index {device} " + " ".join(f"vnpipe-asr/{n}" for n in files)
+        )
+        return run([*ssh, script]).stdout.strip()
+
+    jobs = [(d, g) for d, g in zip(devices, groups, strict=True) if g]
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        for output in pool.map(lambda job: transcribe(*job), jobs):
+            print(output)
     for section in todo:
         dest = asr_path(work, section)
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -171,11 +188,14 @@ def build_scene(
 ) -> dict[str, Any]:
     """Align one scene; returns its map entry."""
     cfg = voice_cfg(work)
-    source = parse_speeches(german, cfg["speakers"])
+    speakers = {**cfg["speakers"], **cfg.get("scene_speakers", {}).get(scene["id"], {})}
+    source = parse_speeches(
+        german, speakers, section.get("default_speaker"), section.get("skip_paragraphs", 0)
+    )
     words = asr["words"]
     spans = align(source, words)
     targets = game_targets(scene)
-    mapping = map_speeches(source, targets)
+    mapping = map_speeches(source, targets, frozenset(cfg.get("ensembles", [])))
     total_tokens = sum(len(s.tokens) for s in source)
     matched_tokens = sum(sp.matched for sp in spans if sp)
     used: set[int] = set()
@@ -314,12 +334,14 @@ def probe_duration(path: Path) -> float:
     return float(out.strip())
 
 
-def cut_clip(src: Path, start: float, end: float, dest: Path) -> None:
-    """Two-pass loudnorm (linear, so short clips are not pumped), mono Opus ~40 kbps."""
+def cut_clip(src: Path, start: float, end: float, dest: Path, chain: str = "") -> None:
+    """Optional ``chain`` (ffmpeg ``-af`` filters, e.g. a noise cleanup), then two-pass
+    loudnorm (linear, so short clips are not pumped); mono Opus ~40 kbps."""
+    pre = f"{chain}," if chain else ""
     seek = ["-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(src)]
     first = run(
         ["ffmpeg", "-hide_banner", "-nostats", *seek]
-        + ["-af", f"loudnorm={LOUDNESS}:print_format=json", "-f", "null", "-"]
+        + ["-af", f"{pre}loudnorm={LOUDNESS}:print_format=json", "-f", "null", "-"]
     ).stderr
     stats, _ = json.JSONDecoder().raw_decode(first[first.rindex("{") :])
     if stats["input_i"] in ("-inf", "inf"):
@@ -333,7 +355,7 @@ def cut_clip(src: Path, start: float, end: float, dest: Path) -> None:
     tmp = dest.with_suffix(".part.ogg")
     run(
         ["ffmpeg", "-hide_banner", "-nostats", "-y", *seek]
-        + ["-af", f"loudnorm={LOUDNESS}:{measured}", "-ac", "1", "-ar", "48000"]
+        + ["-af", f"{pre}loudnorm={LOUDNESS}:{measured}", "-ac", "1", "-ar", "48000"]
         + ["-c:a", "libopus", "-b:a", "40k", "-application", "voip", str(tmp)]
     )
     tmp.replace(dest)
@@ -345,6 +367,7 @@ def cmd_cut(args: argparse.Namespace) -> int:
     if voice_map is None:
         raise SystemExit("voice cut: voice/map.json missing; run `vnpipe voice build`")
     clips = work.path(CLIPS_DIR)
+    filters: dict[str, str] = voice_cfg(work).get("filters", {})
     for section in selected_sections(work, args.scenes):
         scene_id = section["scene"]
         result = voice_map["scenes"].get(scene_id)
@@ -357,13 +380,14 @@ def cmd_cut(args: argparse.Namespace) -> int:
             if entry["status"] not in ("ok", "cut-failed"):
                 dest.unlink(missing_ok=True)
                 continue
-            key = f"{src.name}:{entry['start']}:{entry['end']}:{LOUDNESS}"
+            chain = filters.get(entry["speaker"], "")
+            key = f"{src.name}:{entry['start']}:{entry['end']}:{LOUDNESS}:{chain}"
             if dest.is_file() and entry.get("cut_key") == key:
                 reused += 1
                 continue
             expected = entry["end"] - entry["start"]
             try:
-                cut_clip(src, entry["start"], entry["end"], dest)
+                cut_clip(src, entry["start"], entry["end"], dest, chain)
                 if abs(probe_duration(dest) - expected) > 0.3:
                     raise ValueError("duration mismatch")
             except (ValueError, SystemExit, KeyError) as exc:

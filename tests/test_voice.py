@@ -148,3 +148,27 @@ def test_map_speeches_drops_merges_and_keeps_interjections():
     assert map_speeches(source, [Target(0, "a", 120, "x"), Target(1, "b", 5, "y")]) == {1: 1}
     # short interjections are paired whatever the ratio
     assert map_speeches([sp("b", 1)], [Target(0, "b", 4, "y")]) == {0: 0}
+
+
+def test_unlabelled_section_is_one_speech_by_the_default_speaker():
+    section = (
+        "\nIn der Kapelle, davor Blumen.\n\nAch neige,\nDu Schmerzenreiche,\n\nDein Antlitz.\n"
+    )
+    assert parse_speeches(section, {}) == []
+    (speech,) = parse_speeches(section, {}, default_speaker="margarita", skip_paragraphs=1)
+    assert speech.speaker == "margarita"
+    assert speech.text == "Ach neige, Du Schmerzenreiche, Dein Antlitz."
+
+
+def test_map_speeches_pairs_ensemble_ids_in_sequence():
+    source = [sp("crowd", 10), sp("faust", 10), sp("crowd", 10)]
+    targets = [
+        Target(0, "artisans", 10, "a"),
+        Target(1, "faust", 10, "b"),
+        Target(2, "citizens", 10, "c"),
+    ]
+    assert map_speeches(source, targets) == {1: 1}  # different ids never pair by default
+    ensembles = frozenset({"crowd", "artisans", "citizens"})
+    assert map_speeches(source, targets, ensembles) == {0: 0, 1: 1, 2: 2}
+    # an individual never stands in for an ensemble
+    assert map_speeches([sp("faust", 10)], [Target(0, "citizens", 10, "x")], ensembles) == {}
