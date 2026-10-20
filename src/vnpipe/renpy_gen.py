@@ -164,21 +164,40 @@ def scan_audio(out: Path) -> Audio:
 
 
 def copy_translations(work: Work, out: Path) -> list[Path]:
-    """Copy ``<work>/tl/**/*.rpy`` into ``game/tl/`` and set ``[ui].language`` as default."""
-    src_root = work.path("tl")
+    """Install the UI translation for ``[ui].language`` and make it the only language.
+
+    vnpipe ships ``renpy_templates/tl/<language>/`` (Ren'Py's common strings plus every string
+    of the template screens); ``<work>/tl/**/*.rpy`` is copied on top, so a work file with the
+    same path replaces the shipped one. ``config.language`` (not only
+    ``config.default_language``, which applies on first run) forces the language even when a
+    persistent preference from an older build says otherwise.
+    """
     dest_root = out / "game" / "tl"
     lang_file = out / "game" / "language.rpy"
+    language = work.data.get("ui", {}).get("language")
+    sources: dict[Path, Path] = {}
+    roots = [TEMPLATE_DIR / "tl" / language] if language else []
+    roots.append(work.path("tl"))
+    for i, root in enumerate(roots):
+        if not root.is_dir():
+            continue
+        prefix = Path(language) if i == 0 and language else Path()
+        for src in sorted(root.rglob("*.rpy")):
+            sources[prefix / src.relative_to(root)] = src
     written = []
-    if src_root.is_dir():
+    if sources:
         shutil.rmtree(dest_root, ignore_errors=True)
-        for src in sorted(src_root.rglob("*.rpy")):
-            dest = dest_root / src.relative_to(src_root)
+        for rel, src in sorted(sources.items()):
+            dest = dest_root / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest)
             written.append(dest)
-    language = work.data.get("ui", {}).get("language")
     if language:
-        write_text(lang_file, f"define config.default_language = {quote(language)}\n")
+        write_text(
+            lang_file,
+            f"define config.default_language = {quote(language)}\n"
+            f"define config.language = {quote(language)}\n",
+        )
         written.append(lang_file)
     else:
         lang_file.unlink(missing_ok=True)
@@ -722,13 +741,19 @@ def _solid(size: tuple[int, int], color: tuple[int, ...]) -> Image.Image:
 
 
 def _check_image(selected: bool, round_: bool) -> Image.Image:
+    """Preference marks: a diamond (radio) or a square (check), filled with gold when set."""
     img = Image.new("RGBA", (38, 38), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    box = [4, 4, 33, 33]
-    shape = draw.ellipse if round_ else draw.rectangle
-    shape(box, outline=IVORY + (255,), width=3)
-    if selected:
-        shape([12, 12, 25, 25], fill=ACCENT + (255,))
+    if round_:
+        outer = [(19, 4), (34, 19), (19, 34), (4, 19)]
+        inner = [(19, 11), (27, 19), (19, 27), (11, 19)]
+        draw.polygon(outer, outline=IVORY + (200,), width=2)
+        if selected:
+            draw.polygon(inner, fill=ACCENT + (255,))
+    else:
+        draw.rectangle([6, 6, 31, 31], outline=IVORY + (200,), width=2)
+        if selected:
+            draw.rectangle([12, 12, 25, 25], fill=ACCENT + (255,))
     return img
 
 
@@ -736,6 +761,84 @@ def _slot_image(border_alpha: int, fill_alpha: int) -> Image.Image:
     """Save-slot frame (Ren'Py scales it with gui.slot_button_borders): thin outline plus tint."""
     img = Image.new("RGBA", (48, 48), IVORY + (fill_alpha,))
     ImageDraw.Draw(img).rectangle([0, 0, 47, 47], outline=ACCENT + (border_alpha,), width=2)
+    return img
+
+
+def _card_image(fill: tuple[int, ...], outer_alpha: int, inner_alpha: int) -> Image.Image:
+    """A book-plate panel: tinted fill, a gold outline and a fainter inner rule 5 px inside.
+    Used as a Frame with 12 px borders, so the double rule never scales."""
+    img = Image.new("RGBA", (64, 64), fill)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, 63, 63], outline=ACCENT + (outer_alpha,), width=2)
+    draw.rectangle([5, 5, 58, 58], outline=ACCENT + (inner_alpha,), width=1)
+    return img
+
+
+def _rule_image(width: int, height: int, diamond: int) -> Image.Image:
+    """A gold rule fading out at both ends, with a small diamond at its centre."""
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    mid_y = height // 2
+    half = width / 2
+    for x in range(width):
+        alpha = round(255 * min(1.0, (1 - abs(x + 0.5 - half) / half) * 1.6))
+        img.putpixel((x, mid_y), ACCENT + (alpha,))
+        img.putpixel((x, mid_y + 1), ACCENT + (alpha // 2,))
+    cx, d = width // 2, diamond
+    ImageDraw.Draw(img).polygon(
+        [(cx, mid_y - d), (cx + d, mid_y), (cx, mid_y + d), (cx - d, mid_y)], fill=ACCENT + (255,)
+    )
+    return img
+
+
+def _nav_marker(alpha: int) -> Image.Image:
+    """Navigation highlight: a gold bar on the left edge and a tint fading to the right."""
+    img = Image.new("RGBA", (96, 8), (0, 0, 0, 0))
+    for x in range(96):
+        a = alpha if x < 4 else round(alpha * 0.28 * (1 - (x - 4) / 92))
+        for y in range(8):
+            img.putpixel((x, y), ACCENT + (a,))
+    return img
+
+
+def _line_bar(color: tuple[int, ...], thickness: int) -> Image.Image:
+    """A bar/slider track: a thin horizontal line centred in a transparent 48x48 tile."""
+    img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
+    top = 24 - thickness // 2
+    ImageDraw.Draw(img).rectangle([0, top, 47, top + thickness - 1], fill=color)
+    return img
+
+
+def _vline_bar(color: tuple[int, ...], thickness: int) -> Image.Image:
+    return _line_bar(color, thickness).transpose(Image.Transpose.ROTATE_90)
+
+
+def _diamond_thumb(width: int, height: int) -> Image.Image:
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    cx, cy = width // 2, height // 2
+    r = min(cx, cy) - 1
+    ImageDraw.Draw(img).polygon(
+        [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)],
+        fill=ACCENT + (255,),
+        outline=DARK + (255,),
+    )
+    return img
+
+
+def _hairline() -> Image.Image:
+    """A faint gold line on the top edge (a Frame with a 1 px top border keeps it 1 px)."""
+    img = Image.new("RGBA", (64, 4), (0, 0, 0, 0))
+    ImageDraw.Draw(img).line([(0, 0), (63, 0)], fill=ACCENT + (70,))
+    return img
+
+
+def _vignette() -> Image.Image:
+    """Menu shade (scaled up to the screen): darker towards the edges, never opaque."""
+    w, h = 192, 108
+    img = Image.new("RGBA", (w, h))
+    for y in range(h):
+        for x in range(w):
+            d = min(1.0, (((x - w / 2) / (w / 2)) ** 2 + ((y - h / 2) / (h / 2)) ** 2) ** 0.5)
+            img.putpixel((x, y), DARK + (round(120 + 115 * d * d),))
     return img
 
 
@@ -751,22 +854,35 @@ def gui_extra_images() -> dict[str, Image.Image]:
         "button/check_selected_foreground.png": _check_image(True, False),
         "button/radio_foreground.png": _check_image(False, True),
         "button/radio_selected_foreground.png": _check_image(True, True),
-        "bar/left.png": _solid((48, 48), ACCENT + (255,)),
-        "bar/right.png": _solid((48, 48), IVORY + (60,)),
-        "bar/top.png": _solid((48, 48), IVORY + (60,)),
-        "bar/bottom.png": _solid((48, 48), ACCENT + (255,)),
-        "slider/horizontal_bar.png": _solid((48, 48), IVORY + (60,)),
-        "slider/horizontal_thumb.png": _solid((20, 38), ACCENT + (255,)),
-        "slider/vertical_bar.png": _solid((48, 48), IVORY + (60,)),
-        "slider/vertical_thumb.png": _solid((38, 20), ACCENT + (255,)),
-        "scrollbar/horizontal_bar.png": _solid((48, 48), IVORY + (40,)),
-        "scrollbar/horizontal_thumb.png": _solid((48, 48), ACCENT + (255,)),
-        "scrollbar/vertical_bar.png": _solid((48, 48), IVORY + (40,)),
-        "scrollbar/vertical_thumb.png": _solid((48, 48), ACCENT + (255,)),
+        "bar/left.png": _line_bar(ACCENT + (255,), 6),
+        "bar/right.png": _line_bar(IVORY + (70,), 2),
+        "bar/top.png": _vline_bar(IVORY + (70,), 2),
+        "bar/bottom.png": _vline_bar(ACCENT + (255,), 6),
+        "slider/horizontal_bar.png": _line_bar(IVORY + (90,), 2),
+        "slider/horizontal_thumb.png": _diamond_thumb(34, 38),
+        "slider/vertical_bar.png": _vline_bar(IVORY + (90,), 2),
+        "slider/vertical_thumb.png": _diamond_thumb(38, 34),
+        "scrollbar/horizontal_bar.png": _line_bar(IVORY + (50,), 2),
+        "scrollbar/horizontal_thumb.png": _line_bar(ACCENT + (220,), 6),
+        "scrollbar/vertical_bar.png": _vline_bar(IVORY + (50,), 2),
+        "scrollbar/vertical_thumb.png": _vline_bar(ACCENT + (220,), 6),
+        # Menu ornaments (screens.rpy): panels, rules, navigation marker, menu shade.
+        "vn/card_background.png": _card_image(DARK + (215,), 120, 45),
+        "vn/card_hover_background.png": _card_image((38, 31, 22, 235), 255, 140),
+        "vn/card_empty.png": _card_image(DARK + (120,), 55, 0),
+        "vn/rule.png": _rule_image(520, 18, 6),
+        "vn/rule_small.png": _rule_image(240, 14, 4),
+        "vn/nav_background.png": _solid((96, 8), (0, 0, 0, 0)),
+        "vn/nav_hover_background.png": _nav_marker(130),
+        "vn/nav_selected_background.png": _nav_marker(255),
+        "vn/nav_selected_hover_background.png": _nav_marker(255),
+        "vn/vignette.png": _vignette(),
+        "vn/hairline.png": _hairline(),
     }
     result = dict(base)
     for path, img in base.items():
-        result[f"phone/{path}"] = img
+        if not path.startswith("vn/"):  # ornaments are not looked up by variant prefix
+            result[f"phone/{path}"] = img
     return {f"gui/{path}": img for path, img in sorted(result.items())}
 
 
@@ -806,7 +922,11 @@ testcase default:
     pause 1.0
     # Actions, not label text: stock menu labels may be translated.
     run Start()
-@@PICK@@    advance until eval (e2e_state["end"]) timeout 900
+@@PICK@@    pause 1.0
+    # A save carries the scene title shown by the load screen.
+    run FileSave(1, confirm=False)
+    assert eval (FileJson(1, "vn_scene") is not None)
+    advance until eval (e2e_state["end"]) timeout 900
     advance until screen "main_menu" timeout 60
 @@MENUS@@    assert eval (e2e_state["end"])
 """
@@ -834,6 +954,8 @@ def render_e2e(styles: dict[str, Any], ui: dict[str, str]) -> str:
         "    run Return()\n"
         '    assert screen "main_menu"\n'
     )
+    for screen in ("load", "preferences", "about"):
+        menus += f'    run ShowMenu("{screen}")\n    assert screen "{screen}"\n    run Return()\n'
     return E2E_TESTCASE.replace("@@PICK@@", pick).replace("@@MENUS@@", menus)
 
 
