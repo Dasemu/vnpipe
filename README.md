@@ -25,3 +25,7 @@ In a work repo (a directory with `work.toml`), depend on this package and run
 - [Work configuration (`work.toml`)](docs/work-config.md)
 - [Adaptation rules](docs/adaptation-rules.md)
 - [Running, linting and building](docs/running.md)
+
+## License
+
+[MIT](LICENSE).
