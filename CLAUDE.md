@@ -15,7 +15,8 @@ Works (texts) live in their own repos, e.g. `../Faust-VN`.
 - `uv sync` — install. `uv run pytest` — tests. `uv run ruff check . && uv run ruff format --check .` — lint.
 - `uv run vnpipe --help` — CLI (`--work` defaults to the current directory). Stages: `fetch`,
   `parse`, `annotate {run,status,prompt,merge}`, `assets {...}`, `voice {fetch,asr,build,cut}`
-  (`docs/voice.md`), `renpy [--with-test]` (default output `<work>/vn`).
+  (`docs/voice.md`), `translate {fetch,build,status}` (`docs/translations.md`),
+  `renpy [--with-test]` (default output `<work>/vn`).
 - `scripts/asr.py` runs on a GPU host (faster-whisper), never as a vnpipe dependency.
 - Ren'Py SDK: set `RENPY_SDK` to the unpacked SDK directory (tests that need it are skipped
   otherwise; fallback `tools/renpy-sdk`). See `docs/running.md`.

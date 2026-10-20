@@ -1,5 +1,6 @@
 ## Scene select and credits screens, reached from the main menu. The data they show
-## (`vn_scenes`, `vn_credits`) is generated in menu_data.rpy; static otherwise.
+## (`vn_scenes`, `vn_credits`, `vn_credits_tl`) is generated in menu_data.rpy; static
+## otherwise.
 
 ## Labels of the scenes the player has reached; updated when a scene starts.
 default persistent.vn_seen_scenes = set()
@@ -77,7 +78,8 @@ screen vn_credits():
         vbox:
             spacing 6
 
-            for section_title, entries in vn_credits:
+            ## a translation has its own credits (its text comes from another translator)
+            for section_title, entries in vn_credits_tl.get(_preferences.language, vn_credits):
                 null height 20
                 label section_title
                 for entry in entries:

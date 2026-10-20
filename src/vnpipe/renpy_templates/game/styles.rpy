@@ -33,6 +33,17 @@ screen vn_art_style_picker():
 
         null height 40
 
+        if len(vn_languages) > 1:
+            hbox:
+                xalign 0.5
+                spacing 40
+                for lang, lang_label in vn_languages:
+                    textbutton lang_label:
+                        style_prefix "vn_language"
+                        action [Function(vn_set_language, lang), Language(lang)]
+
+            null height 20
+
         for style_id, style_label in vn_art_styles:
             textbutton style_label:
                 style_prefix "vn_picker"
@@ -52,9 +63,21 @@ style vn_picker_button_text:
     xalign 0.5
     text_align 0.5
 
-## Shown once, before the first scene, when there is a choice to make.
+style vn_language_button is gui_button
+style vn_language_button_text is gui_button_text
+
+style vn_language_button:
+    padding (16, 6)
+
+style vn_language_button_text:
+    size 32
+    selected_color gui.accent_color
+    selected_underline True
+
+## Shown once, before the first scene, when there is a choice to make (an art style, and
+## the language when the game has translations).
 label vn_pick_art_style:
-    if len(vn_art_styles) > 1 and not persistent.art_style_chosen:
+    if (len(vn_art_styles) > 1 or len(vn_languages) > 1) and not persistent.art_style_chosen:
         scene black
         $ quick_menu = False
         call screen vn_art_style_picker

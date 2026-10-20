@@ -11,6 +11,7 @@ The GUI files in ``renpy_templates/`` were produced once with the Ren'Py SDK's
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import tomllib
 from dataclasses import dataclass, field
@@ -30,6 +31,7 @@ NO_MANIFEST_STYLE = {"default": {"label": "Default"}}  # work without an asset m
 
 ADV_MAX_LINES = 4
 NVL_MAX_LINES = 8
+SAY_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SPLIT_INDENT = 6  # parsed `indent` at or above this marks a split verse line
 TITLE_PAUSE = 2.0
 END_PAUSE = 3.0
@@ -164,16 +166,15 @@ def scan_audio(out: Path) -> Audio:
 
 
 def copy_translations(work: Work, out: Path) -> list[Path]:
-    """Install the UI translation for ``[ui].language`` and make it the only language.
+    """Install the UI translation for ``[ui].language``.
 
     vnpipe ships ``renpy_templates/tl/<language>/`` (Ren'Py's common strings plus every string
     of the template screens); ``<work>/tl/**/*.rpy`` is copied on top, so a work file with the
-    same path replaces the shipped one. ``config.language`` (not only
-    ``config.default_language``, which applies on first run) forces the language even when a
-    persistent preference from an older build says otherwise.
+    same path replaces the shipped one. Which language plays is decided in ``languages.rpy``
+    (the work's own language unless the player picked a translation).
     """
     dest_root = out / "game" / "tl"
-    lang_file = out / "game" / "language.rpy"
+    (out / "game" / "language.rpy").unlink(missing_ok=True)  # written by older versions
     language = work.data.get("ui", {}).get("language")
     sources: dict[Path, Path] = {}
     roots = [TEMPLATE_DIR / "tl" / language] if language else []
@@ -192,15 +193,6 @@ def copy_translations(work: Work, out: Path) -> list[Path]:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest)
             written.append(dest)
-    if language:
-        write_text(
-            lang_file,
-            f"define config.default_language = {quote(language)}\n"
-            f"define config.language = {quote(language)}\n",
-        )
-        written.append(lang_file)
-    else:
-        lang_file.unlink(missing_ok=True)
     return written
 
 
@@ -370,6 +362,18 @@ class Box:
     is_direction: bool = False
 
 
+@dataclass
+class BoxRecord:
+    """A say statement as written, for the translations (``vnpipe.renpy_tl``): its ``id``
+    (the first line id), speaker, mode and the voice statement it carries."""
+
+    line_id: str
+    speaker: str
+    nvl: bool
+    voice: str | None = None  # clip path when the box starts the voice
+    sustain: bool = False  # the box carries `voice sustain`
+
+
 def _playlist(files: list[str]) -> str:
     return "[" + ", ".join(_plain_quote(f) for f in files) + "]"
 
@@ -388,8 +392,10 @@ class SceneWriter:
         audio: Audio,
         music_state: dict[str, str | None],
         voice_files: dict[int, str] | None = None,
+        records: list[BoxRecord] | None = None,
     ):
         self.work = work
+        self.records = records if records is not None else []
         self.scene = scene
         self.audio = audio
         self.voice_files = voice_files or {}  # speech index -> clip path (relative to game/)
@@ -509,13 +515,19 @@ class SceneWriter:
         if self.mode == "adv":
             self.stage(box)
         text = "\\n".join(escape_text(line["text"]) for line in box.lines)
-        variable = char_var(box.speaker, nvl=self.mode == "nvl")
-        self.voice_statement(box)
-        self.emit(f'{variable} "{text}"')
-        if self.mode == "nvl":
+        nvl = self.mode == "nvl"
+        variable = char_var(box.speaker, nvl=nvl)
+        record = BoxRecord(first["id"], box.speaker, nvl)
+        if nvl:  # before the say, so it belongs to the say's translation block
             self.emit("nvl clear")
+        self.voice_statement(box, record)
+        if not SAY_ID_RE.match(first["id"]):
+            raise ValueError(f"line id {first['id']!r} cannot be a Ren'Py say id")
+        # the explicit id names the translation block (`translate <language> <id>:`)
+        self.emit(f'{variable} "{text}" id {first["id"]}')
+        self.records.append(record)
 
-    def voice_statement(self, box: Box) -> None:
+    def voice_statement(self, box: Box, record: BoxRecord) -> None:
         """``voice`` before the first box of a voiced speech, ``voice sustain`` before the
         following ones (a stage direction inside the speech keeps the clip going, but never
         starts it)."""
@@ -525,9 +537,11 @@ class SceneWriter:
             return
         if self.voice_started == speech:
             self.emit("voice sustain")
+            record.sustain = True
         elif not box.is_direction:
             self.emit(f"voice {_plain_quote(path)}")
             self.voice_started = speech
+            record.voice = path
 
     def music(self, spec: str | None) -> None:
         """Play/stop for a mood, ``track:<path>`` or ``none``; never restarts what already plays."""
@@ -690,7 +704,9 @@ def render_script(
     annotated: dict[str, Any],
     audio: Audio | None = None,
     voice: dict[str, dict[int, str]] | None = None,
+    records: dict[str, list[BoxRecord]] | None = None,
 ) -> str:
+    """The game script; ``records`` (if given) receives every scene's say boxes."""
     validate_staging(work, annotated)
     annotated = apply_overrides(work, annotated)
     out = [
@@ -706,9 +722,9 @@ def render_script(
     audio = audio or Audio()
     music_state: dict[str, str | None] = {"playing": UNKNOWN_MUSIC}
     for scene in annotated["scenes"]:
-        out.extend(
-            SceneWriter(work, scene, audio, music_state, (voice or {}).get(scene["id"])).render()
-        )
+        boxes = [] if records is None else records.setdefault(scene["id"], [])
+        writer = SceneWriter(work, scene, audio, music_state, (voice or {}).get(scene["id"]), boxes)
+        out.extend(writer.render())
         seen |= {line["id"] for line in scene["lines"]}
     missing = known - seen
     if missing:
@@ -988,26 +1004,41 @@ def render_characters(work: Work) -> str:
     return "\n".join(out)
 
 
-def title_cards(work: Work, annotated: dict[str, Any]) -> dict[str, tuple[str, str | None]]:
-    """Image name -> (heading, optional subtitle line: place/time, from ``[[scenes]].subtitle``)."""
+def title_cards(
+    work: Work, annotated: dict[str, Any], tags: dict[str, str] | None = None
+) -> dict[str, tuple[str, str | None]]:
+    """Image name -> (heading, optional subtitle line: place/time, from ``[[scenes]].subtitle``).
+
+    ``tags`` (scene ids -> ``{#id}`` tag) tell apart equal texts that translate differently."""
+    tags = tags or {}
     subtitles = {sc["id"]: sc.get("subtitle") for sc in work.data.get("scenes", [])}
-    cards: dict[str, tuple[str, str | None]] = {
-        f"card_{sc['id']}": (sc["heading"], subtitles.get(sc["id"])) for sc in annotated["scenes"]
-    }
+    cards: dict[str, tuple[str, str | None]] = {}
+    for sc in annotated["scenes"]:
+        tag = f"{{#{tags[sc['id']]}}}" if sc["id"] in tags else ""
+        subtitle = subtitles.get(sc["id"])
+        cards[f"card_{sc['id']}"] = (sc["heading"] + tag, subtitle and subtitle + tag)
     cards["card_end"] = (work.data["work"].get("end_text", DEFAULT_END_TEXT), None)
     return cards
+
+
+def _tagged(text: str) -> str:
+    """Escape markup, keeping a trailing ``{#...}`` disambiguation tag."""
+    match = re.search(r"\{#[^{}]*\}$", text)
+    if not match:
+        return escape_text(text)
+    return escape_text(text[: match.start()]) + match.group(0)
 
 
 def render_card(heading: str, subtitle: str | None) -> str:
     """A spaced-out heading; with a subtitle, a thin gold rule and a smaller italic line below."""
     props = "size=76, kerning=3, text_align=0.5, xmaximum=1600"
     if not subtitle:
-        return f'Text("{escape_text(heading)}", {props})'
+        return f'Text("{_tagged(heading)}", {props})'
     sub_props = 'size=34, italic=True, color="#c9a25b", text_align=0.5, xmaximum=1600'
     return (
-        f'VBox(Text("{escape_text(heading)}", {props}, xalign=0.5), '
+        f'VBox(Text("{_tagged(heading)}", {props}, xalign=0.5), '
         'Solid("#c9a25b", xsize=200, ysize=2, xalign=0.5), '
-        f'Text("{escape_text(subtitle)}", {sub_props}, xalign=0.5), spacing=26)'
+        f'Text("{_tagged(subtitle)}", {sub_props}, xalign=0.5), spacing=26)'
     )
 
 
@@ -1034,7 +1065,8 @@ def render_images(entries: list[ImageEntry], cards: dict[str, tuple[str, str | N
     return "\n".join(out)
 
 
-def _about(work: Work) -> str:
+def about_parts(work: Work) -> list[str]:
+    """Paragraphs of the About screen text."""
     info = work.data["work"]
     text_l, trans_l, tail = ABOUT_LABELS.get(info.get("language", "es"), ABOUT_LABELS["en"])
     parts = [info.get("subtitle", "")]
@@ -1043,7 +1075,11 @@ def _about(work: Work) -> str:
     if info.get("translator"):
         parts.append(f"{trans_l}: {info['translator']}")
     parts.append(tail)
-    return "\\n\\n".join(escape_text(p) for p in parts if p)
+    return [p for p in parts if p]
+
+
+def _about(work: Work) -> str:
+    return "\\n\\n".join(escape_text(p) for p in about_parts(work))
 
 
 def ui_labels(work: Work) -> dict[str, str]:
@@ -1108,8 +1144,11 @@ def credits_sections(work: Work, manifest: dict[str, Any] | None) -> list[tuple[
     return [(title, [_markup(e) for e in entries]) for title, entries in sections]
 
 
-def scene_menu_titles(work: Work, annotated: dict[str, Any]) -> list[tuple[str, str]]:
+def scene_menu_titles(
+    work: Work, annotated: dict[str, Any], tags: dict[str, str] | None = None
+) -> list[tuple[str, str]]:
     """(label, title) per scene; a repeated heading gets its subtitle, else its number."""
+    tags = tags or {}
     subtitles = {sc["id"]: sc.get("subtitle") for sc in work.data.get("scenes", [])}
     headings = [sc["heading"] for sc in annotated["scenes"]]
     seen: dict[str, int] = {}
@@ -1119,11 +1158,21 @@ def scene_menu_titles(work: Work, annotated: dict[str, Any]) -> list[tuple[str, 
         if headings.count(title) > 1:
             seen[title] = seen.get(title, 0) + 1
             title += f" ({subtitles.get(sc['id']) or seen[title]})"
-        result.append((f"scene_{sc['id']}", _markup(title)))
+        tag = f"{{#{tags[sc['id']]} menu}}" if sc["id"] in tags else ""
+        result.append((f"scene_{sc['id']}", _markup(title) + tag))
     return result
 
 
-def render_menu_data(work: Work, annotated: dict[str, Any], manifest: dict[str, Any] | None) -> str:
+def render_menu_data(
+    work: Work,
+    annotated: dict[str, Any],
+    manifest: dict[str, Any] | None,
+    tags: dict[str, str] | None = None,
+    credits_tl: dict[str, list[tuple[str, list[str]]]] | None = None,
+) -> str:
+    """Menu data; ``credits_tl`` holds the credits of each translation (Ren'Py language ->
+    sections), shown instead of ``vn_credits`` in that language."""
+
     def py(value: Any) -> str:  # JSON strings are valid Python literals
         return json.dumps(value, ensure_ascii=False)
 
@@ -1133,8 +1182,9 @@ def render_menu_data(work: Work, annotated: dict[str, Any], manifest: dict[str, 
             "## Generated by `vnpipe renpy`. Do not edit: regenerate instead.",
             "",
             f"define vn_subtitle = {py(subtitle)}",
-            f"define vn_scenes = {py(scene_menu_titles(work, annotated))}",
+            f"define vn_scenes = {py(scene_menu_titles(work, annotated, tags))}",
             f"define vn_credits = {py(credits_sections(work, manifest))}",
+            f"define vn_credits_tl = {py(credits_tl or {})}",
             "",
         ]
     )
@@ -1176,6 +1226,10 @@ def generate(
     )
     if first_bg:
         menu_bg = bg_image_name(first_bg)
+    from vnpipe import renpy_tl  # imports this module
+
+    tls = renpy_tl.load_all(work, annotated)
+    tags = renpy_tl.collision_tags(work, annotated, tls) if tls else {}
     styles, default_style = art_styles(manifest)
     picker_title, picker_hint = ART_STYLE_LABELS.get(
         info.get("language", "es"), ART_STYLE_LABELS["en"]
@@ -1195,6 +1249,7 @@ def generate(
         "UI_SCENES": ui["scenes"],
         "UI_CREDITS": ui["credits"],
         "LOCKED": LOCKED_SCENE,
+        "LANGUAGES": repr(renpy_tl.languages(work, tls)),
     }
     written: list[Path] = []
     for src in sorted((TEMPLATE_DIR / "game").rglob("*")):
@@ -1222,17 +1277,40 @@ def generate(
     if with_test:
         write_text(test_file, render_e2e(styles, ui))
         written.append(test_file)
+    records: dict[str, list[BoxRecord]] = {}
+    credits_tl = {
+        tl.language: renpy_tl.translated_credits(work, annotated, manifest, tl) for tl in tls
+    }
     for name, text in (
         ("characters.rpy", render_characters(work)),
-        ("images.rpy", render_images(entries, title_cards(work, annotated))),
-        ("menu_data.rpy", render_menu_data(work, annotated, manifest)),
+        ("images.rpy", render_images(entries, title_cards(work, annotated, tags))),
+        ("menu_data.rpy", render_menu_data(work, annotated, manifest, tags, credits_tl)),
         (
             "script.rpy",
-            render_script(work, annotated, scan_audio(out), voice_files(work, annotated)),
+            render_script(work, annotated, scan_audio(out), voice_files(work, annotated), records),
         ),
     ):
         write_text(game / name, text)
         written.append(game / name)
+    for tl in tls:
+        tl_dir = game / "tl" / tl.language
+        shutil.rmtree(tl_dir, ignore_errors=True)
+        for name, text in (
+            (
+                "script.rpy",
+                renpy_tl.render_tl_script(
+                    tl, apply_overrides(work, annotated), records, lyric_voice(work), work.cast
+                ),
+            ),
+            (
+                "strings.rpy",
+                renpy_tl.render_tl_strings(
+                    tl, renpy_tl.string_pairs(work, annotated, manifest, tl, tags)
+                ),
+            ),
+        ):
+            write_text(tl_dir / name, text)
+            written.append(tl_dir / name)
 
     for e in entries:
         for _, rel, source in e.variants:

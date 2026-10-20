@@ -1060,6 +1060,17 @@ screen preferences():
                             for style_id, style_label in vn_art_styles:
                                 textbutton style_label action SetField(persistent, "art_style", style_id)
 
+                if len(vn_languages) > 1:
+
+                    frame:
+                        style "pref_panel"
+                        vbox:
+                            style_prefix "radio"
+                            label _("Language")
+                            ## Each language under its own name, so it can be found in any.
+                            for lang, lang_label in vn_languages:
+                                textbutton lang_label action [Function(vn_set_language, lang), Language(lang)]
+
                 ## Additional panels of type "radio_pref" or "check_pref" can be
                 ## added here, to add additional creator-defined preferences.
 

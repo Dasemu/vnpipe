@@ -49,7 +49,8 @@ def scene_block(script: str, scene_id: str) -> list[str]:
 
 
 def say_lines(block: list[str]) -> list[str]:
-    return [ln for ln in block if ln.startswith("c_")]
+    """Say statements without their ``id`` clause."""
+    return [re.sub(r" id \w+$", "", ln) for ln in block if ln.startswith("c_")]
 
 
 def test_escape_text():
@@ -116,10 +117,11 @@ def test_mode_switch_and_flash_shake(script):
     block = scene_block(script, "talk")
     i_nvl = block.index("# talk_0016")
     # nvl cue at 0016: sprites hidden (nothing changes the bg), director spoke in nvl mode
-    assert block[i_nvl + 1].startswith("c_director_nvl ")
-    assert "nvl clear" in block[i_nvl:]
+    # each nvl page is cleared before its say (so the clear joins the say's translate block)
+    assert block[i_nvl + 1] == "nvl clear"
+    assert block[i_nvl + 2].startswith("c_director_nvl ")
     # lyric voice lines in nvl are grouped into one page
-    pages = [ln for ln in block if ln.startswith("c_poet_voice_nvl")]
+    pages = [ln for ln in say_lines(block) if ln.startswith("c_poet_voice_nvl")]
     assert pages == ['c_poet_voice_nvl "Callan los pájaros;\\nla noche cae."']
     # cue 3: leave nvl, flash + shake, tint reset
     i_cue = block.index("# talk_0019")
@@ -276,7 +278,7 @@ def test_stage_direction_keeps_on_stage(work, annotated):
     direction = next(ln for ln in ann["scenes"][1]["lines"] if ln["id"] == "talk_0010")
     direction["ann"]["on_stage"] = []
     block = scene_block(renpy_gen.render_script(work, ann), "talk")
-    i = block.index('c_narrator "Se aleja."')
+    i = block.index('c_narrator "Se aleja." id talk_0010')
     assert not any(ln.startswith("hide ") for ln in block[i - 3 : i])
 
 
@@ -435,7 +437,7 @@ def test_scan_and_copy_audio(work, tmp_path):
     assert "audio/scenes/x.ogg" in audio.files
 
 
-def test_copy_translations_and_forced_language(work, tmp_path):
+def test_copy_translations(work, tmp_path):
     root = tmp_path / "w"
     (root / "tl/spanish").mkdir(parents=True)
     work_common = "translate spanish strings:\n"
@@ -450,15 +452,21 @@ def test_copy_translations_and_forced_language(work, tmp_path):
     assert (tl / "screens.rpy").read_bytes() == shipped.read_bytes()
     assert (tl / "common.rpy").read_text(encoding="utf-8") == work_common
     assert (tl / "extra.rpy").is_file()
+    assert tl / "screens.rpy" in copied
+    # the language is chosen in languages.rpy: a language.rpy left by an older build goes
     lang = out / "game/language.rpy"
-    assert lang in copied
-    # config.language beats a persistent preference left by an older build
-    assert lang.read_text(encoding="utf-8") == (
-        'define config.default_language = "spanish"\ndefine config.language = "spanish"\n'
-    )
-    # Without [ui].language the stale file is removed.
+    lang.write_text("define config.language = 'spanish'\n", encoding="utf-8")
     renpy_gen.copy_translations(type(work)(root=tmp_path / "none", data=work.data), out)
     assert not lang.exists()
+
+
+def test_languages_file_forces_the_work_language(project):
+    text = (project / "game/languages.rpy").read_text(encoding="utf-8")
+    # no translations: one language, the work's [ui].language (none in the fixture)
+    assert "define vn_languages = [(None, 'Español')]" in text
+    # config.language follows the player's choice only, never a stale preference
+    assert "config.language = persistent.vn_language" in text
+    assert "config.language = vn_languages[0][0]" in text
 
 
 def _tl_strings(path: Path) -> list[str]:

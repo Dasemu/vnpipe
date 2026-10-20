@@ -102,6 +102,9 @@ translate spanish strings:
     old "Transitions"
     new "Transiciones"
 
+    old "Language"
+    new "Idioma"
+
     old "Text Speed"
     new "Velocidad del texto"
 
