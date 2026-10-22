@@ -89,6 +89,18 @@ tweaks, `@@TOKEN@@` placeholders for title/build name/about text/menu background
   --accent '#c9a25b' --boring '#14110e' --template "$RENPY_SDK/gui" --start
 ```
 
+Since then the menus were redesigned around the scene title cards (gold rule with a diamond,
+size-76 titles): a book-title main menu, a navigation column with the work's title, framed
+panels, and a save/load register (one row per slot with thumbnail, scene title, the line on
+screen and the date; Roman-numbered pages; autosave and quick save pages only when loading;
+a delete button per slot). The scene and line come from `config.save_json_callbacks`
+(`menus.rpy`). The ornament images (`gui/vn/*.png`, check/radio marks, bars) are drawn by
+`gui_extra_images()` in `renpy_gen.py`. `tl/spanish/` holds the Spanish UI strings: Ren'Py's
+SDK translation (corrected and completed) plus every `_()` string of the screens; a test
+fails when a screen string has no translation. To check a project for untranslated strings,
+run `renpy.sh <copy of vn> translate spanish` on a throw-away copy and look for new `old`
+entries after the "TODO: Translation updated" line.
+
 These files are part of Ren'Py (MIT licence, Tom Rothamel and contributors). The font
 `game/fonts/RobotoSlab-*.ttf` is Roboto Slab (Apache 2.0), taken from the SDK
 documentation assets.
@@ -106,7 +118,8 @@ The expected result is a statistics block with no warnings above it.
 Lint does not catch runtime errors (missing GUI images, display bugs). `--with-test` also
 writes `game/e2e_test.rpy`, a Ren'Py `testcase` that clicks "Start", advances through the
 whole game up to the final card (`label the_end`) and back to the main menu (then opens and
-closes the Scenes and Credits screens), failing on any
+closes the Scenes, Credits, Load, Preferences and About screens; a save made at the first
+scene must carry its title), failing on any
 exception (`traceback.txt`). Use a throw-away output directory so the test file never ends
 up in `vn/` or in a build:
 

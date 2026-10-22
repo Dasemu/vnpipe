@@ -1,0 +1,39 @@
+
+[translations.en]
+language = "english"
+label = "English"
+text_url = "https://example.org/mini.txt"
+text_file = "data/raw/en.txt"
+gutenberg_id = 1
+title = "Mini"
+subtitle = "Fixture work"
+translator = "E. Translator"
+end_text = "To be continued…"
+voice_credits = ["Voices: nobody."]
+
+[translations.en.speakers]
+MANAGER = "director"
+POET = "poet"
+"THE LORD" = "lord"
+VOICE = "poet_voice"
+
+[[translations.en.sections]]
+scene = "lyric"
+heading = "LYRIC"
+default_speaker = "poet_voice"
+subtitle = "Lyric · Dusk"
+
+[[translations.en.sections]]
+scene = "talk"
+heading = "TALK"
+title = "CONVERSATION"
+
+[[translations.en.overrides]]
+scene = "talk"
+game = "talk_0010"
+source = "Exit."
+
+[translations.en.names]
+director = "Manager"
+poet = "Poet"
+lord = "The Lord"

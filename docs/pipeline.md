@@ -29,6 +29,7 @@ redone unless their input changes.
 | Annotation | `annotate run/status/prompt/merge` ([details](annotation.md)) | `annotate.py` |
 | Assets | `assets prompt/import/process/check/status/placeholders/sheet/migrate` | `assets.py` |
 | Voice (optional) | `voice fetch/asr/build/cut` ([details](voice.md)) | `voice.py`, `voice_align.py` |
+| Translations (optional) | `translate fetch/build/status` ([details](translations.md)) | `translate.py`, `translate_align.py`, `renpy_tl.py` |
 | Ren'Py | `renpy [--from-parsed] [--with-test] [--out DIR]` | `renpy_gen.py` |
 
 `--work DIR` (before the subcommand) selects the work root; default is the current directory.

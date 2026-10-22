@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -48,7 +49,8 @@ def scene_block(script: str, scene_id: str) -> list[str]:
 
 
 def say_lines(block: list[str]) -> list[str]:
-    return [ln for ln in block if ln.startswith("c_")]
+    """Say statements without their ``id`` clause."""
+    return [re.sub(r" id \w+$", "", ln) for ln in block if ln.startswith("c_")]
 
 
 def test_escape_text():
@@ -115,10 +117,11 @@ def test_mode_switch_and_flash_shake(script):
     block = scene_block(script, "talk")
     i_nvl = block.index("# talk_0016")
     # nvl cue at 0016: sprites hidden (nothing changes the bg), director spoke in nvl mode
-    assert block[i_nvl + 1].startswith("c_director_nvl ")
-    assert "nvl clear" in block[i_nvl:]
+    # each nvl page is cleared before its say (so the clear joins the say's translate block)
+    assert block[i_nvl + 1] == "nvl clear"
+    assert block[i_nvl + 2].startswith("c_director_nvl ")
     # lyric voice lines in nvl are grouped into one page
-    pages = [ln for ln in block if ln.startswith("c_poet_voice_nvl")]
+    pages = [ln for ln in say_lines(block) if ln.startswith("c_poet_voice_nvl")]
     assert pages == ['c_poet_voice_nvl "Callan los pájaros;\\nla noche cae."']
     # cue 3: leave nvl, flash + shake, tint reset
     i_cue = block.index("# talk_0019")
@@ -275,7 +278,7 @@ def test_stage_direction_keeps_on_stage(work, annotated):
     direction = next(ln for ln in ann["scenes"][1]["lines"] if ln["id"] == "talk_0010")
     direction["ann"]["on_stage"] = []
     block = scene_block(renpy_gen.render_script(work, ann), "talk")
-    i = block.index('c_narrator "Se aleja."')
+    i = block.index('c_narrator "Se aleja." id talk_0010')
     assert not any(ln.startswith("hide ") for ln in block[i - 3 : i])
 
 
@@ -434,20 +437,84 @@ def test_scan_and_copy_audio(work, tmp_path):
     assert "audio/scenes/x.ogg" in audio.files
 
 
-def test_copy_translations_and_default_language(work, tmp_path):
+def test_copy_translations(work, tmp_path):
     root = tmp_path / "w"
     (root / "tl/spanish").mkdir(parents=True)
-    (root / "tl/spanish/common.rpy").write_text("translate spanish strings:\n", encoding="utf-8")
+    work_common = "translate spanish strings:\n"
+    (root / "tl/spanish/common.rpy").write_text(work_common, encoding="utf-8")
+    (root / "tl/spanish/extra.rpy").write_text(work_common, encoding="utf-8")
     data = {**work.data, "ui": {**work.data.get("ui", {}), "language": "spanish"}}
     out = tmp_path / "out"
     copied = renpy_gen.copy_translations(type(work)(root=root, data=data), out)
-    assert (out / "game/tl/spanish/common.rpy").is_file()
+    tl = out / "game/tl/spanish"
+    # vnpipe's own translation ships; a work file with the same path replaces it
+    shipped = renpy_gen.TEMPLATE_DIR / "tl/spanish/screens.rpy"
+    assert (tl / "screens.rpy").read_bytes() == shipped.read_bytes()
+    assert (tl / "common.rpy").read_text(encoding="utf-8") == work_common
+    assert (tl / "extra.rpy").is_file()
+    assert tl / "screens.rpy" in copied
+    # the language is chosen in languages.rpy: a language.rpy left by an older build goes
     lang = out / "game/language.rpy"
-    assert lang in copied
-    assert lang.read_text(encoding="utf-8") == 'define config.default_language = "spanish"\n'
-    # Without [ui].language the stale file is removed.
+    lang.write_text("define config.language = 'spanish'\n", encoding="utf-8")
     renpy_gen.copy_translations(type(work)(root=tmp_path / "none", data=work.data), out)
     assert not lang.exists()
+
+
+def test_languages_file_forces_the_work_language(project):
+    text = (project / "game/languages.rpy").read_text(encoding="utf-8")
+    # no translations: one language, the work's [ui].language (none in the fixture)
+    assert "define vn_languages = [(None, 'Español')]" in text
+    # config.language follows the player's choice only, never a stale preference
+    assert "config.language = persistent.vn_language" in text
+    assert "config.language = vn_languages[0][0]" in text
+
+
+def _tl_strings(path: Path) -> list[str]:
+    return re.findall(r'^\s*old "((?:[^"\\]|\\.)*)"$', path.read_text(encoding="utf-8"), re.M)
+
+
+def test_shipped_spanish_covers_every_template_string():
+    """Every _("...") string of the template screens has exactly one Spanish translation."""
+    template = ""
+    for path in sorted((renpy_gen.TEMPLATE_DIR / "game").glob("*.rpy")):
+        template += path.read_text(encoding="utf-8")
+    wanted = set(re.findall(r'(?<![\w.])_\("((?:[^"\\]|\\.)*)"\)', template))
+    wanted = {s for s in wanted if "@@" not in s}  # work values (title) are already translated
+    assert len(wanted) > 70
+    olds = []
+    for path in sorted((renpy_gen.TEMPLATE_DIR / "tl/spanish").glob("*.rpy")):
+        olds += _tl_strings(path)
+    assert len(olds) == len(set(olds)), "a string translated twice breaks Ren'Py"
+    assert sorted(wanted - set(olds)) == []
+
+
+def test_no_sync_buttons(project):
+    options = (project / "game/options.rpy").read_text(encoding="utf-8")
+    assert "define config.has_sync = False" in options
+    screens = (project / "game/screens.rpy").read_text(encoding="utf-8")
+    assert "UploadSync" not in screens and "DownloadSync" not in screens
+
+
+def test_menu_ornaments_are_deterministic():
+    a, b = renpy_gen.gui_extra_images(), renpy_gen.gui_extra_images()
+    assert a.keys() == b.keys()
+    assert all(a[k].tobytes() == b[k].tobytes() for k in a)
+    for name in ("card_background", "card_hover_background", "rule", "nav_selected_background"):
+        assert f"gui/vn/{name}.png" in a
+    assert "gui/phone/vn/rule.png" not in a  # ornaments are not looked up per variant
+    rule = a["gui/vn/rule.png"]
+    mid = rule.height // 2
+    # bright in the middle, faded at the ends
+    assert rule.getpixel((0, mid))[3] < 10 and rule.getpixel((rule.width // 3, mid))[3] == 255
+
+
+def test_save_metadata_and_slots(project):
+    menus = (project / "game/menus.rpy").read_text(encoding="utf-8")
+    assert "config.save_json_callbacks.append(vn_save_json)" in menus
+    assert "store.vn_current_scene = label" in menus
+    screens = (project / "game/screens.rpy").read_text(encoding="utf-8")
+    assert 'info.get("vn_scene")' in screens and 'info["vn_line"]' in screens
+    assert "FileDelete(slot)" in screens and "vn_roman(page)" in screens
 
 
 def test_mood_directory_is_a_playlist(work, annotated):

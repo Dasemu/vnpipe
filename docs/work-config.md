@@ -7,7 +7,7 @@ A work is a directory containing `work.toml`, plus the folders the pipeline fill
 | Table | Keys |
 |---|---|
 | `[work]` | `id`, `title`, `subtitle`, `author`, `translator`, `language` (`es`/`en`: About, menu and credits texts), `lyric_voice` (cast id for verse nobody speaks; default `poet_voice`), `end_text`, `menu_bg` (legacy alias of `[ui].main_menu_bg`). |
-| `[ui]` | `main_menu_bg` (background asset id of the main menu and, darker, the game menu; default: `[work].menu_bg`, else the first staged `bg`); `language` (Ren'Py language name set as `config.default_language`, e.g. `spanish`; its strings come from `<work>/tl/<language>/*.rpy`, copied into `game/tl/`). |
+| `[ui]` | `main_menu_bg` (background asset id of the main menu and, darker, the game menu; default: `[work].menu_bg`, else the first staged `bg`); `language` (Ren'Py language name of the work's own language, e.g. `spanish`; it is the default and `config.language` follows only the player's explicit choice, so an old persistent preference cannot switch the menus back to English; `language_label` (its name in the language choice, default from `[work].language`); vnpipe ships `renpy_templates/tl/<language>/` (Ren'Py's common strings and every template screen string; only `spanish` so far) and copies `<work>/tl/<language>/*.rpy` on top, a work file replacing a shipped file with the same name). |
 | `[source]` | `gutenberg_id`, `url`, `raw_file` (cache path, relative to the work root, gitignored). |
 | `[scope]` | `start_marker`, `end_marker` (whole stripped lines), `end_occurrence` (1-based, searched after the start; the end marker itself is excluded). |
 | `[speakers]` | Speaker heading as printed (upper case, without its italic note) → cast id. Several headings may share one id (anonymous crowd speakers). A key with punctuation or markup (`"CORO, TUTTI"`) is matched against the whole printed line first. An unknown speaker is a parse error. |
@@ -127,3 +127,10 @@ heading = "Straße (I)"                     # heading line in the source text, s
 Voice data lives in the work: `voice/asr/NN.json` (committed ASR cache), `voice/map.json`,
 `voice/report/<scene>.txt`, `voice/clips/*.ogg`. `vnpipe renpy` copies the clips to
 `game/voice/` and credits them when `[voice].credits` is set.
+
+### Translations
+
+Optional `[translations.<code>]` tables: other languages from a published translation of the
+text (verbatim, never machine-translated). Configuration, mapping rules and the Ren'Py output
+are in [translations.md](translations.md); the mapping is committed as
+`data/translations/<code>.json`.
