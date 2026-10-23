@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Translation mapped onto the game text (data/translations/<code>.json)",
+  "type": "object",
+  "required": ["version", "code", "language", "source_sha256", "annotated_sha256", "config_sha256", "scenes"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {"const": 1},
+    "code": {"type": "string"},
+    "language": {"type": "string", "pattern": "^[a-z_]+$"},
+    "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "annotated_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "scenes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["title", "subtitle", "units", "stats"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {"type": "string"},
+          "subtitle": {"type": ["string", "null"]},
+          "units": {
+            "description": "First line id of a game unit -> the source units it shows, in order. Game units absent here show nothing (their text is in their group's first unit).",
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["kind", "speaker", "src_line", "stanzas"],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {"enum": ["say", "dir"]},
+                  "speaker": {"type": "string"},
+                  "src_line": {"type": "integer"},
+                  "stanzas": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+                  }
+                }
+              }
+            }
+          },
+          "stats": {"type": "object"}
+        }
+      }
+    }
+  }
+}

@@ -27,7 +27,7 @@
               "additionalProperties": false,
               "properties": {
                 "id": {"type": "string", "pattern": "^[a-z0-9_]+_[0-9]{4}$", "description": "<scene id>_<4-digit index within scene>"},
-                "kind": {"enum": ["verse", "direction", "cast"], "description": "verse = spoken/recited text line; direction = stage direction (parenthesised or italic setting text); cast = list of characters under a scene heading"},
+                "kind": {"enum": ["verse", "direction", "cast"], "description": "verse = spoken/recited text line (one paragraph in a prose scene); direction = stage direction (parenthesised or italic setting text); cast = list of characters under a scene heading"},
                 "speaker": {"type": ["string", "null"], "description": "Cast id from work.toml [speakers], null when nobody speaks (e.g. Dedicatoria, directions)"},
                 "speaker_note": {"type": ["string", "null"], "description": "Inline note in the speaker heading, e.g. 'solo', 'aterrado'"},
                 "speech": {"type": "integer", "minimum": 0, "description": "Index of the speech (speaker turn) within the scene; directions get the index of the speech they occur in or precede"},

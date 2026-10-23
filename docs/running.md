@@ -27,14 +27,55 @@ uv run vnpipe renpy --out some/dir  # default output: <work>/vn
 ```
 
 Generation is deterministic: running it twice gives identical files (no timestamps).
-It rewrites `game/{options,gui,screens,support,characters,images,script}.rpy`,
+It rewrites `game/{options,gui,screens,support,styles,characters,images,script}.rpy`,
 `game/gui/`, `game/fonts/` and `game/images/`; anything else (for example `game/audio/`)
 is left alone. Music only appears in the script for moods that have a matching
 `game/audio/<mood>.ogg`, so drop files there and regenerate.
 
-Images come from `assets/assets.json` (statuses `processed`, `approved`,
-`placeholder`); anything missing or unusable is replaced by a generated placeholder so
-the game always runs.
+Images come from `assets/assets.json` (see "Art styles" below); anything missing or
+unusable is replaced by a generated placeholder so the game always runs. The generator also
+writes `game/styles.rpy` (the first-launch style picker and `persistent.art_style`).
+
+### Art styles and the asset manifest (v2)
+
+`assets/assets.json` declares the art styles once and gives each asset one *rendition* per
+style:
+
+```json
+{
+  "default_style": "painterly",
+  "styles": {"painterly": {"label": "Pictórico", "base_prompt": "...",
+             "templates": {"background": "...", "sprite": "...", "variant": "..."}}},
+  "assets": [{"id": "sprite_faust_neutral", "kind": "sprite", "character": "faust",
+              "expression": "neutral", "prompt": "...", "reference": null,
+              "renditions": {"painterly": {"source": "chatgpt-web", "generation_id": "...",
+                "raw_file": "raw/painterly/sprite_faust_neutral.png",
+                "file": "sprites/painterly/faust_neutral.webp", "sha256": "...",
+                "status": "approved", "notes": ""}}}]
+}
+```
+
+The prompt sent is `styles[style].base_prompt` + the kind template + the asset prompt.
+Files live in `<kind dir>/<style>/<name>.webp` (raw: `raw/<style>/<asset id>.png`).
+Asset commands take `--style` (default: `default_style`):
+
+```sh
+vnpipe assets prompt|import|process|placeholders|sheet [--style S] ...
+vnpipe assets status [--style S]       # asset x style matrix + approved/pending/missing counts
+vnpipe assets check [--style S] [IDS]  # automatic checks, exit 1 on any failure
+vnpipe assets migrate STYLE [--label L]  # one-off: v1 manifest -> v2 (old data becomes STYLE)
+```
+
+`process` runs the checks on what it processed. Checks: a variant's sha256 differs from its
+reference's (same style); a sprite's opaque coverage is 15-85% (measured on the keyed raw
+image when it exists, else on the trimmed file) and its bbox does not touch the top edge
+(raw only); a background is 1920x1080.
+
+In the game, each image is a `ConditionSwitch` on `persistent.art_style` over the styles
+with a `processed`/`approved` rendition; the default style is the fallback (placeholder if
+it has none). An image with a single usable style is a plain image. First launch shows a
+style picker before the first scene (one button per style label); Preferences has a radio
+group to change it. A change applies on the next interaction without moving sprites.
 
 ### GUI template and licences
 
@@ -47,6 +88,18 @@ tweaks, `@@TOKEN@@` placeholders for title/build name/about text/menu background
 "$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher generate_gui OUT --width 1920 --height 1080 \
   --accent '#c9a25b' --boring '#14110e' --template "$RENPY_SDK/gui" --start
 ```
+
+Since then the menus were redesigned around the scene title cards (gold rule with a diamond,
+size-76 titles): a book-title main menu, a navigation column with the work's title, framed
+panels, and a save/load register (one row per slot with thumbnail, scene title, the line on
+screen and the date; Roman-numbered pages; autosave and quick save pages only when loading;
+a delete button per slot). The scene and line come from `config.save_json_callbacks`
+(`menus.rpy`). The ornament images (`gui/vn/*.png`, check/radio marks, bars) are drawn by
+`gui_extra_images()` in `renpy_gen.py`. `tl/spanish/` holds the Spanish UI strings: Ren'Py's
+SDK translation (corrected and completed) plus every `_()` string of the screens; a test
+fails when a screen string has no translation. To check a project for untranslated strings,
+run `renpy.sh <copy of vn> translate spanish` on a throw-away copy and look for new `old`
+entries after the "TODO: Translation updated" line.
 
 These files are part of Ren'Py (MIT licence, Tom Rothamel and contributors). The font
 `game/fonts/RobotoSlab-*.ttf` is Roboto Slab (Apache 2.0), taken from the SDK
@@ -64,7 +117,9 @@ The expected result is a statistics block with no warnings above it.
 
 Lint does not catch runtime errors (missing GUI images, display bugs). `--with-test` also
 writes `game/e2e_test.rpy`, a Ren'Py `testcase` that clicks "Start", advances through the
-whole game up to the final card (`label the_end`) and back to the main menu, failing on any
+whole game up to the final card (`label the_end`) and back to the main menu (then opens and
+closes the Scenes, Credits, Load, Preferences and About screens; a save made at the first
+scene must carry its title), failing on any
 exception (`traceback.txt`). Use a throw-away output directory so the test file never ends
 up in `vn/` or in a build:
 
@@ -95,6 +150,18 @@ python3 -m http.server -d build/web 8000     # then open http://localhost:8000
 # Linux desktop
 "$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher distribute vn --package linux --destination build/dist
 ```
+
+```sh
+# Android APK (needs the `[android]` table in work.toml, RAPT in the SDK and JDK 21)
+"$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher android_build vn --destination build/dist
+```
+
+RAPT (https://www.renpy.org/dl/<version>/renpy-<version>-rapt.zip) is unzipped into the SDK
+folder, and its Android SDK is installed once with `python android.py installsdk` run from
+`rapt/` using the SDK's own Python with the SDK folder on `sys.path` (it asks to accept
+Google's Android SDK licence). The first build creates `vn/android.keystore` and
+`vn/bundle.keystore`: back them up, keep them out of git and reuse the same ones for every
+release, or installed apps cannot be updated.
 
 `--package` also accepts `win` and `mac`; omit it to build every package. The web build
 also leaves a `build/web.zip` next to the folder. A web build writes

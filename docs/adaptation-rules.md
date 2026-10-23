@@ -37,7 +37,7 @@ sets the mood and the words carry the scene. So:
   `joyful`, `melancholic`, `solemn`, `ironic`, `angry`, `fearful`, `ecstatic`.
 - `work.toml` maps that vocabulary to the 3–4 expressions each character actually has
   (`[cast.<id>].expressions`). A text box uses the emotion of its first line.
-- Positions (`left`, `center`, `right`) come from the annotation, but the first
+- Positions (`left`, `center`, `right`) are assigned when the annotation is expanded, but the first
   position a character gets in a scene is kept for the whole scene, so nobody jumps
   around between boxes.
 - Characters with `sprite = false` are never drawn, even if annotated as on stage.

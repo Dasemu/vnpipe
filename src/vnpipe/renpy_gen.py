@@ -11,7 +11,9 @@ The GUI files in ``renpy_templates/`` were produced once with the Ren'Py SDK's
 import argparse
 import hashlib
 import json
+import re
 import shutil
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,15 +21,18 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from vnpipe import PACKAGE_DIR
-from vnpipe.assets import USABLE, load_manifest, placeholder
+from vnpipe.android import write_android
+from vnpipe.assets import load_manifest, placeholder, style_file, usable_rendition
 from vnpipe.config import Work, load_work
 from vnpipe.schema import validate
+from vnpipe.voice import copy_voice, voice_files
 
 TEMPLATE_DIR = PACKAGE_DIR / "renpy_templates"
-USABLE_STATUS = USABLE | {"placeholder"}
+NO_MANIFEST_STYLE = {"default": {"label": "Default"}}  # work without an asset manifest
 
 ADV_MAX_LINES = 4
 NVL_MAX_LINES = 8
+SAY_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SPLIT_INDENT = 6  # parsed `indent` at or above this marks a split verse line
 TITLE_PAUSE = 2.0
 END_PAUSE = 3.0
@@ -44,6 +49,9 @@ EMOTIONS = (
     "ecstatic",
 )
 POSITIONS = ("left", "right", "center")  # order in which --from-parsed assigns positions
+# Stage slots tried, in order, when a character's position is already taken by another sprite;
+# the two inner slots only come into play with four or more sprites on stage.
+SLOTS = ("left", "right", "center", "left_mid", "right_mid")
 TRANSITIONS = {
     "dissolve": "dissolve",
     "fade": "fade",
@@ -54,10 +62,48 @@ TINTS = ("none", "dark", "red")
 DEFAULT_LYRIC_VOICE = "poet_voice"
 DEFAULT_END_TEXT = "Continuará…"
 MENU_BG_FALLBACK = "gui/main_menu.png"
+MUSIC_FADE = "fadeout 1.0 fadein 1.0"
+UNKNOWN_MUSIC = "?"  # what plays is not known statically (start of a scene: it may be entered
+# from the main menu), so the first music statement of every scene is always emitted
 
 ABOUT_LABELS = {
     "es": ("Texto", "Traducción", "Adaptación a novela visual generada con vnpipe."),
     "en": ("Text", "Translation", "Visual novel adaptation generated with vnpipe."),
+}
+# Menu/credits strings per work language: scenes, credits, text, translation, source, music,
+# illustrations, "illustrations generated with X", Gutenberg line, "no scene reached yet".
+UI_LABELS = {
+    "es": {
+        "scenes": "Escenas",
+        "credits": "Créditos",
+        "text": "Texto",
+        "translation": "Traducción",
+        "source": "Fuente",
+        "music": "Música",
+        "voices": "Voces",
+        "art": "Ilustraciones",
+        "art_with": "Ilustraciones generadas con {}",
+        "gutenberg": "Proyecto Gutenberg, n.º {id}",
+    },
+    "en": {
+        "scenes": "Scenes",
+        "credits": "Credits",
+        "text": "Text",
+        "translation": "Translation",
+        "source": "Source",
+        "music": "Music",
+        "voices": "Voices",
+        "art": "Illustrations",
+        "art_with": "Illustrations generated with {}",
+        "gutenberg": "Project Gutenberg #{id}",
+    },
+}
+ART_SOURCE_NAMES = {"chatgpt-web": "ChatGPT (OpenAI)"}  # manifest `source` -> display name
+LOCKED_SCENE = "—"
+# (preferences title and picker heading, picker hint) per work language
+ART_STYLE_LABELS = {
+    "es": ("Estilo visual", "Puedes cambiarlo más tarde en Preferencias."),
+    "en": ("Visual style", "You can change this later in Preferences."),
 }
 
 
@@ -92,6 +138,86 @@ def char_var(cast_id: str, nvl: bool = False) -> str:
 def bg_image_name(asset_id: str) -> str:
     """``bg_heaven_lord`` -> ``bg heaven_lord`` (tag ``bg``, attribute ``heaven_lord``)."""
     return "bg " + asset_id.removeprefix("bg_")
+
+
+# --- audio ----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Audio:
+    """The OGG files shipped in ``game/audio/``, as paths relative to ``game/``."""
+
+    moods: dict[str, list[str]] = field(default_factory=dict)  # mood -> tracks (sorted)
+    files: frozenset[str] = frozenset()
+
+
+def scan_audio(out: Path) -> Audio:
+    """``audio/<mood>/*.ogg`` is a mood playlist; ``audio/<mood>.ogg`` a one-track mood."""
+    game = out / "game"
+    root = game / "audio"
+    if not root.is_dir():
+        return Audio()
+    paths = sorted(p.relative_to(game).as_posix() for p in root.rglob("*.ogg"))
+    moods: dict[str, list[str]] = {}
+    for rel in paths:
+        parts = rel.split("/")[1:]
+        mood = parts[0] if len(parts) > 1 else Path(parts[0]).stem
+        moods.setdefault(mood, []).append(rel)
+    return Audio(moods, frozenset(paths))
+
+
+def copy_translations(work: Work, out: Path) -> list[Path]:
+    """Install the UI translation for ``[ui].language``.
+
+    vnpipe ships ``renpy_templates/tl/<language>/`` (Ren'Py's common strings plus every string
+    of the template screens); ``<work>/tl/**/*.rpy`` is copied on top, so a work file with the
+    same path replaces the shipped one. Which language plays is decided in ``languages.rpy``
+    (the work's own language unless the player picked a translation).
+    """
+    dest_root = out / "game" / "tl"
+    (out / "game" / "language.rpy").unlink(missing_ok=True)  # written by older versions
+    language = work.data.get("ui", {}).get("language")
+    sources: dict[Path, Path] = {}
+    roots = [TEMPLATE_DIR / "tl" / language] if language else []
+    roots.append(work.path("tl"))
+    for i, root in enumerate(roots):
+        if not root.is_dir():
+            continue
+        prefix = Path(language) if i == 0 and language else Path()
+        for src in sorted(root.rglob("*.rpy")):
+            sources[prefix / src.relative_to(root)] = src
+    written = []
+    if sources:
+        shutil.rmtree(dest_root, ignore_errors=True)
+        for rel, src in sorted(sources.items()):
+            dest = dest_root / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
+            written.append(dest)
+    return written
+
+
+def copy_audio(work: Work, out: Path) -> list[Path]:
+    """Copy ``<work>/audio/**/*.ogg`` into ``game/audio/`` keeping subdirectories."""
+    src_root = work.path("audio")
+    if not src_root.is_dir():
+        return []  # no work audio: leave whatever the project already holds
+    dest_root = out / "game" / "audio"
+    shutil.rmtree(dest_root, ignore_errors=True)
+    written = []
+    for src in sorted(src_root.rglob("*.ogg")):
+        dest = dest_root / src.relative_to(src_root)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        written.append(dest)
+    return written
+
+
+def check_music_spec(spec: Any, where: str, allow_auto: bool) -> None:
+    if not isinstance(spec, str) or not spec or spec == "track:":
+        raise ValueError(f"{where}: music must be a mood, 'track:<path>' or 'none'")
+    if spec == "auto" and not allow_auto:
+        raise ValueError(f"{where}: music 'auto' is only valid in a cue")
 
 
 # --- annotations ----------------------------------------------------------------
@@ -155,9 +281,11 @@ def annotations_from_parsed(work: Work, parsed: dict[str, Any]) -> dict[str, Any
 @dataclass
 class ImageEntry:
     name: str  # Ren'Py image name, e.g. "bg heaven" or "hero neutral"
-    rel: str  # path below game/images/
     asset: dict[str, Any]
-    source: Path | None  # file to copy, or None to generate a placeholder
+    default: str  # default style id: always present, the ConditionSwitch fallback
+    # (style, path below game/images/, file to copy or None for a placeholder), default style
+    # first, then the other styles with an approved rendition in manifest order
+    variants: list[tuple[str, str, Path | None]]
 
 
 def _sprite_asset(character: str, expression: str) -> dict[str, Any]:
@@ -166,16 +294,12 @@ def _sprite_asset(character: str, expression: str) -> dict[str, Any]:
         "kind": "sprite",
         "character": character,
         "expression": expression,
-        "file": f"sprites/{character}_{expression}.webp",
+        "renditions": {},
     }
 
 
 def _bg_asset(asset_id: str) -> dict[str, Any]:
-    return {
-        "id": asset_id,
-        "kind": "background",
-        "file": f"bg/{asset_id.removeprefix('bg_')}.webp",
-    }
+    return {"id": asset_id, "kind": "background", "renditions": {}}
 
 
 def _needed_bg_ids(work: Work) -> list[str]:
@@ -184,8 +308,16 @@ def _needed_bg_ids(work: Work) -> list[str]:
     return ids
 
 
+def art_styles(manifest: dict[str, Any] | None) -> tuple[dict[str, Any], str]:
+    """(styles by id, default style id); a single pseudo-style when there is no manifest."""
+    if manifest is None:
+        return NO_MANIFEST_STYLE, next(iter(NO_MANIFEST_STYLE))
+    return manifest["styles"], manifest["default_style"]
+
+
 def collect_images(work: Work, manifest: dict[str, Any] | None) -> list[ImageEntry]:
     """Every image the project declares: manifest assets plus anything the staging needs."""
+    styles, default = art_styles(manifest)
     assets: dict[str, dict[str, Any]] = {}
     for asset in (manifest or {}).get("assets", []):
         assets[asset["id"]] = asset
@@ -204,12 +336,19 @@ def collect_images(work: Work, manifest: dict[str, Any] | None) -> list[ImageEnt
             name = bg_image_name(asset_id)
         else:
             name = f"{asset['character']} {asset['expression']}"
-        source = None
-        if asset.get("status") in USABLE_STATUS and asset.get("file"):
-            candidate = work.path("assets") / asset["file"]
-            if candidate.is_file():
-                source = candidate
-        entries.append(ImageEntry(name, asset["file"], asset, source))
+        variants: list[tuple[str, str, Path | None]] = []
+        for style in [default, *(s for s in styles if s != default)]:
+            rendition = asset["renditions"].get(style)
+            rel = (rendition or {}).get("file") or style_file(asset, style)
+            candidate = work.path("assets") / rel
+            if style == default:
+                # the fallback may also be a placeholder; otherwise one is generated
+                # (a placeholder is always regenerated, without the asset id label)
+                ok = rendition and rendition["status"] in {"processed", "approved"}
+                variants.append((style, rel, candidate if ok and candidate.is_file() else None))
+            elif usable_rendition(asset, style) and candidate.is_file():
+                variants.append((style, rel, candidate))
+        entries.append(ImageEntry(name, asset, default, variants))
     return entries
 
 
@@ -224,6 +363,22 @@ class Box:
     is_direction: bool = False
 
 
+@dataclass
+class BoxRecord:
+    """A say statement as written, for the translations (``vnpipe.renpy_tl``): its ``id``
+    (the first line id), speaker, mode and the voice statement it carries."""
+
+    line_id: str
+    speaker: str
+    nvl: bool
+    voice: str | None = None  # clip path when the box starts the voice
+    sustain: bool = False  # the box carries `voice sustain`
+
+
+def _playlist(files: list[str]) -> str:
+    return "[" + ", ".join(_plain_quote(f) for f in files) + "]"
+
+
 def _is_direction(line: dict[str, Any]) -> bool:
     return line["kind"] == "direction" or line["ann"]["kind"] == "stage_direction"
 
@@ -232,18 +387,32 @@ class SceneWriter:
     """Turns one scene's lines into Ren'Py statements, tracking staging state."""
 
     def __init__(
-        self, work: Work, scene: dict[str, Any], moods: set[str], music_state: dict[str, str | None]
+        self,
+        work: Work,
+        scene: dict[str, Any],
+        audio: Audio,
+        music_state: dict[str, str | None],
+        voice_files: dict[int, str] | None = None,
+        records: list[BoxRecord] | None = None,
     ):
         self.work = work
+        self.records = records if records is not None else []
         self.scene = scene
-        self.moods = moods
+        self.audio = audio
+        self.voice_files = voice_files or {}  # speech index -> clip path (relative to game/)
+        self.voice_started: int | None = None  # speech whose clip is playing
         self.voice = lyric_voice(work)
         self.cues = {c["at"]: c for c in work.data.get("cues", [])}
         staging = work.data.get("staging", {}).get(scene["id"], {})
         self.mode: str = staging.get("mode", "adv")
         self.bg: str | None = staging.get("bg")
         self.tint = "none"
-        self.music_state = music_state  # {'playing': mood}, shared across scenes
+        self.music_state = music_state  # {'playing': key}, shared across scenes
+        music_state["playing"] = UNKNOWN_MUSIC
+        # scene-wide or cue-set music; None = follow the annotation moods
+        self.music_spec: str | None = staging.get("music")
+        if self.music_spec == "auto":
+            self.music_spec = None
         self.shown: dict[str, str] = {}  # character -> expression currently shown
         self.pinned: dict[str, str] = dict(staging.get("cast", {}))  # always on stage in ADV
         self.positions: dict[str, str] = dict(self.pinned)  # character -> position in this scene
@@ -287,6 +456,8 @@ class SceneWriter:
             if transition not in TRANSITIONS:
                 raise ValueError(f"cue at {cue['at']}: unknown transition {transition!r}")
             self.emit(f"with {TRANSITIONS[transition]}")
+        if "music" in cue:
+            self.music_spec = None if cue["music"] == "auto" else cue["music"]
         if cue.get("shake"):
             self.emit("show layer master at vn_shake")
         moved = False
@@ -341,25 +512,64 @@ class SceneWriter:
         first, last = box.lines[0], box.lines[-1]
         ids = first["id"] if first is last else f"{first['id']} .. {last['id']}"
         self.emit(f"# {ids}")
-        self.music(first["ann"].get("music"))
+        self.music(self.music_spec or first["ann"].get("music"))
         if self.mode == "adv":
             self.stage(box)
         text = "\\n".join(escape_text(line["text"]) for line in box.lines)
-        variable = char_var(box.speaker, nvl=self.mode == "nvl")
-        self.emit(f'{variable} "{text}"')
-        if self.mode == "nvl":
+        nvl = self.mode == "nvl"
+        variable = char_var(box.speaker, nvl=nvl)
+        record = BoxRecord(first["id"], box.speaker, nvl)
+        if nvl:  # before the say, so it belongs to the say's translation block
             self.emit("nvl clear")
+        self.voice_statement(box, record)
+        if not SAY_ID_RE.match(first["id"]):
+            raise ValueError(f"line id {first['id']!r} cannot be a Ren'Py say id")
+        # the explicit id names the translation block (`translate <language> <id>:`)
+        self.emit(f'{variable} "{text}" id {first["id"]}')
+        self.records.append(record)
 
-    def music(self, mood: str | None) -> None:
-        if mood is None:
+    def voice_statement(self, box: Box, record: BoxRecord) -> None:
+        """``voice`` before the first box of a voiced speech, ``voice sustain`` before the
+        following ones (a stage direction inside the speech keeps the clip going, but never
+        starts it)."""
+        speech = box.key[1]
+        path = self.voice_files.get(speech)
+        if not path:
             return
-        if mood == "none":
-            if self.music_state["playing"]:
+        if self.voice_started == speech:
+            self.emit("voice sustain")
+            record.sustain = True
+        elif not box.is_direction:
+            self.emit(f"voice {_plain_quote(path)}")
+            self.voice_started = speech
+            record.voice = path
+
+    def music(self, spec: str | None) -> None:
+        """Play/stop for a mood, ``track:<path>`` or ``none``; never restarts what already plays."""
+        if spec is None or (not self.audio.files and spec != "none"):
+            return  # nothing to play (a work without audio)
+        if spec == "none":
+            if self.music_state["playing"] is not None:
                 self.emit("stop music fadeout 1.0")
                 self.music_state["playing"] = None
-        elif mood in self.moods and self.music_state["playing"] != mood:
-            self.emit(f'play music "audio/{mood}.ogg" fadeout 1.0 fadein 1.0')
-            self.music_state["playing"] = mood
+            return
+        if spec.startswith("track:"):
+            rel = "audio/" + spec.removeprefix("track:")
+            if rel not in self.audio.files:
+                raise ValueError(f"{self.scene['id']}: music track {rel!r} not found in audio/")
+            files = [rel]
+        else:
+            files = self.audio.moods.get(spec, [])
+            if not files:
+                if self.audio.moods and (self.music_spec == spec):
+                    raise ValueError(f"{self.scene['id']}: no audio for music mood {spec!r}")
+                return  # annotation mood without audio: keep what plays
+        if self.music_state["playing"] == spec:
+            return
+        target = _plain_quote(files[0]) if len(files) == 1 else _playlist(files)
+        # if_changed: no restart if the engine already plays it (e.g. entered via scene select)
+        self.emit(f"play music {target} {MUSIC_FADE} if_changed")
+        self.music_state["playing"] = spec
 
     # -- sprites ---------------------------------------------------------------------
 
@@ -384,6 +594,7 @@ class SceneWriter:
             if cid not in desired:
                 desired.append(cid)
         changed = self.hide_sprites([c for c in list(self.shown) if c not in desired])
+        moved = self.assign_slots(desired)
         for cid in desired:
             expressions = self.work.cast[cid].get("expressions", {})
             neutral = expressions.get("neutral", "neutral")
@@ -391,18 +602,43 @@ class SceneWriter:
                 expression = expressions.get(ann["emotion"], neutral)
             else:
                 expression = self.shown.get(cid, neutral)
-            if self.shown.get(cid) != expression:
+            if self.shown.get(cid) != expression or cid in moved:
                 self.emit(f"show {cid} {expression} at vn_{self.positions[cid]}")
                 self.shown[cid] = expression
                 changed = True
-        if changed:
+        if moved:
+            self.emit("with vn_move")
+        elif changed:
             self.emit("with dissolve")
+
+    def assign_slots(self, desired: list[str]) -> set[str]:
+        """Give every sprite on stage its own slot; return the shown sprites that had to move.
+
+        Sprites already on stage claim their slots first (in the order they appeared), so a
+        newcomer whose annotated position is taken gets the first free slot instead of being
+        drawn on top of someone else."""
+        order = [c for c in self.shown if c in desired] + [
+            c for c in desired if c not in self.shown
+        ]
+        taken: set[str] = set()
+        moved: set[str] = set()
+        for cid in order:
+            slot = self.positions[cid]
+            if slot in taken:
+                slot = next((s for s in SLOTS if s not in taken), slot)
+                if cid in self.shown:
+                    moved.add(cid)
+                self.positions[cid] = slot
+            taken.add(slot)
+        return moved
 
     # -- scene ---------------------------------------------------------------------------
 
     def render(self) -> list[str]:
         scene = self.scene
         self.out.append(f"label scene_{scene['id']}:")
+        self.emit(f'$ vn_mark_scene("scene_{scene["id"]}")')  # unlocks it in the scene select
+        self.emit("window auto")  # also when entered from the scene select, not via `start`
         self.emit("scene black")
         self.emit(f"show card_{scene['id']} at truecenter")
         self.emit("with fade")
@@ -432,7 +668,11 @@ def validate_staging(work: Work, annotated: dict[str, Any]) -> None:
                 raise ValueError(f"[staging.{sid}].cast: unknown character {cid!r}")
             if pos not in VALID_POSITIONS:
                 raise ValueError(f"[staging.{sid}].cast: unknown position {pos!r}")
+        if "music" in cfg:
+            check_music_spec(cfg["music"], f"[staging.{sid}]", allow_auto=False)
     for cue in work.data.get("cues", []):
+        if "music" in cue:
+            check_music_spec(cue["music"], f"cue at {cue['at']}", allow_auto=True)
         for cid, pos in cue.get("move", {}).items():
             if cid not in cast:
                 raise ValueError(f"cue at {cue['at']}: move of unknown character {cid!r}")
@@ -460,27 +700,39 @@ def apply_overrides(work: Work, annotated: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def render_script(work: Work, annotated: dict[str, Any], moods: set[str]) -> str:
+def render_script(
+    work: Work,
+    annotated: dict[str, Any],
+    audio: Audio | None = None,
+    voice: dict[str, dict[int, str]] | None = None,
+    records: dict[str, list[BoxRecord]] | None = None,
+) -> str:
+    """The game script; ``records`` (if given) receives every scene's say boxes."""
     validate_staging(work, annotated)
     annotated = apply_overrides(work, annotated)
     out = [
         "## Generated by `vnpipe renpy`. Do not edit: regenerate instead.",
         "",
         "label start:",
+        "    call vn_pick_art_style",
         "    window auto",
         "",
     ]
     known = {c["at"] for c in work.data.get("cues", [])}
     seen: set[str] = set()
-    music_state: dict[str, str | None] = {"playing": None}
+    audio = audio or Audio()
+    music_state: dict[str, str | None] = {"playing": UNKNOWN_MUSIC}
     for scene in annotated["scenes"]:
-        out.extend(SceneWriter(work, scene, moods, music_state).render())
+        boxes = [] if records is None else records.setdefault(scene["id"], [])
+        writer = SceneWriter(work, scene, audio, music_state, (voice or {}).get(scene["id"]), boxes)
+        out.extend(writer.render())
         seen |= {line["id"] for line in scene["lines"]}
     missing = known - seen
     if missing:
         raise ValueError(f"cues refer to unknown line ids: {sorted(missing)}")
     out += [
         "label the_end:",
+        *(["    stop music fadeout 3.0"] if audio.files else []),
         "    scene black",
         "    with fade",
         "    show card_end at truecenter",
@@ -506,13 +758,104 @@ def _solid(size: tuple[int, int], color: tuple[int, ...]) -> Image.Image:
 
 
 def _check_image(selected: bool, round_: bool) -> Image.Image:
+    """Preference marks: a diamond (radio) or a square (check), filled with gold when set."""
     img = Image.new("RGBA", (38, 38), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    box = [4, 4, 33, 33]
-    shape = draw.ellipse if round_ else draw.rectangle
-    shape(box, outline=IVORY + (255,), width=3)
-    if selected:
-        shape([12, 12, 25, 25], fill=ACCENT + (255,))
+    if round_:
+        outer = [(19, 4), (34, 19), (19, 34), (4, 19)]
+        inner = [(19, 11), (27, 19), (19, 27), (11, 19)]
+        draw.polygon(outer, outline=IVORY + (200,), width=2)
+        if selected:
+            draw.polygon(inner, fill=ACCENT + (255,))
+    else:
+        draw.rectangle([6, 6, 31, 31], outline=IVORY + (200,), width=2)
+        if selected:
+            draw.rectangle([12, 12, 25, 25], fill=ACCENT + (255,))
+    return img
+
+
+def _slot_image(border_alpha: int, fill_alpha: int) -> Image.Image:
+    """Save-slot frame (Ren'Py scales it with gui.slot_button_borders): thin outline plus tint."""
+    img = Image.new("RGBA", (48, 48), IVORY + (fill_alpha,))
+    ImageDraw.Draw(img).rectangle([0, 0, 47, 47], outline=ACCENT + (border_alpha,), width=2)
+    return img
+
+
+def _card_image(fill: tuple[int, ...], outer_alpha: int, inner_alpha: int) -> Image.Image:
+    """A book-plate panel: tinted fill, a gold outline and a fainter inner rule 5 px inside.
+    Used as a Frame with 12 px borders, so the double rule never scales."""
+    img = Image.new("RGBA", (64, 64), fill)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, 63, 63], outline=ACCENT + (outer_alpha,), width=2)
+    draw.rectangle([5, 5, 58, 58], outline=ACCENT + (inner_alpha,), width=1)
+    return img
+
+
+def _rule_image(width: int, height: int, diamond: int) -> Image.Image:
+    """A gold rule fading out at both ends, with a small diamond at its centre."""
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    mid_y = height // 2
+    half = width / 2
+    for x in range(width):
+        alpha = round(255 * min(1.0, (1 - abs(x + 0.5 - half) / half) * 1.6))
+        img.putpixel((x, mid_y), ACCENT + (alpha,))
+        img.putpixel((x, mid_y + 1), ACCENT + (alpha // 2,))
+    cx, d = width // 2, diamond
+    ImageDraw.Draw(img).polygon(
+        [(cx, mid_y - d), (cx + d, mid_y), (cx, mid_y + d), (cx - d, mid_y)], fill=ACCENT + (255,)
+    )
+    return img
+
+
+def _nav_marker(alpha: int) -> Image.Image:
+    """Navigation highlight: a gold bar on the left edge and a tint fading to the right."""
+    img = Image.new("RGBA", (96, 8), (0, 0, 0, 0))
+    for x in range(96):
+        a = alpha if x < 4 else round(alpha * 0.28 * (1 - (x - 4) / 92))
+        for y in range(8):
+            img.putpixel((x, y), ACCENT + (a,))
+    return img
+
+
+def _line_bar(color: tuple[int, ...], thickness: int) -> Image.Image:
+    """A bar/slider track: a thin horizontal line centred in a transparent 48x48 tile."""
+    img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
+    top = 24 - thickness // 2
+    ImageDraw.Draw(img).rectangle([0, top, 47, top + thickness - 1], fill=color)
+    return img
+
+
+def _vline_bar(color: tuple[int, ...], thickness: int) -> Image.Image:
+    return _line_bar(color, thickness).transpose(Image.Transpose.ROTATE_90)
+
+
+def _diamond_thumb(width: int, height: int) -> Image.Image:
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    cx, cy = width // 2, height // 2
+    r = min(cx, cy) - 1
+    ImageDraw.Draw(img).polygon(
+        [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)],
+        fill=ACCENT + (255,),
+        outline=DARK + (255,),
+    )
+    return img
+
+
+def _hairline() -> Image.Image:
+    """A faint gold line on the top edge (a Frame with a 1 px top border keeps it 1 px)."""
+    img = Image.new("RGBA", (64, 4), (0, 0, 0, 0))
+    ImageDraw.Draw(img).line([(0, 0), (63, 0)], fill=ACCENT + (70,))
+    return img
+
+
+def _vignette() -> Image.Image:
+    """Menu shade (scaled up to the screen): darker towards the edges, never opaque."""
+    w, h = 192, 108
+    img = Image.new("RGBA", (w, h))
+    for y in range(h):
+        for x in range(w):
+            d = min(1.0, (((x - w / 2) / (w / 2)) ** 2 + ((y - h / 2) / (h / 2)) ** 2) ** 0.5)
+            img.putpixel((x, y), DARK + (round(120 + 115 * d * d),))
     return img
 
 
@@ -522,26 +865,41 @@ def gui_extra_images() -> dict[str, Image.Image]:
         "button/background.png": _solid((24, 24), (0, 0, 0, 0)),
         "button/hover_background.png": _solid((24, 24), ACCENT + (60,)),
         "button/selected_background.png": _solid((24, 24), ACCENT + (35,)),
+        "button/slot_idle_background.png": _slot_image(110, 14),
+        "button/slot_hover_background.png": _slot_image(255, 40),
         "button/check_foreground.png": _check_image(False, False),
         "button/check_selected_foreground.png": _check_image(True, False),
         "button/radio_foreground.png": _check_image(False, True),
         "button/radio_selected_foreground.png": _check_image(True, True),
-        "bar/left.png": _solid((48, 48), ACCENT + (255,)),
-        "bar/right.png": _solid((48, 48), IVORY + (60,)),
-        "bar/top.png": _solid((48, 48), IVORY + (60,)),
-        "bar/bottom.png": _solid((48, 48), ACCENT + (255,)),
-        "slider/horizontal_bar.png": _solid((48, 48), IVORY + (60,)),
-        "slider/horizontal_thumb.png": _solid((20, 38), ACCENT + (255,)),
-        "slider/vertical_bar.png": _solid((48, 48), IVORY + (60,)),
-        "slider/vertical_thumb.png": _solid((38, 20), ACCENT + (255,)),
-        "scrollbar/horizontal_bar.png": _solid((48, 48), IVORY + (40,)),
-        "scrollbar/horizontal_thumb.png": _solid((48, 48), ACCENT + (255,)),
-        "scrollbar/vertical_bar.png": _solid((48, 48), IVORY + (40,)),
-        "scrollbar/vertical_thumb.png": _solid((48, 48), ACCENT + (255,)),
+        "bar/left.png": _line_bar(ACCENT + (255,), 6),
+        "bar/right.png": _line_bar(IVORY + (70,), 2),
+        "bar/top.png": _vline_bar(IVORY + (70,), 2),
+        "bar/bottom.png": _vline_bar(ACCENT + (255,), 6),
+        "slider/horizontal_bar.png": _line_bar(IVORY + (90,), 2),
+        "slider/horizontal_thumb.png": _diamond_thumb(34, 38),
+        "slider/vertical_bar.png": _vline_bar(IVORY + (90,), 2),
+        "slider/vertical_thumb.png": _diamond_thumb(38, 34),
+        "scrollbar/horizontal_bar.png": _line_bar(IVORY + (50,), 2),
+        "scrollbar/horizontal_thumb.png": _line_bar(ACCENT + (220,), 6),
+        "scrollbar/vertical_bar.png": _vline_bar(IVORY + (50,), 2),
+        "scrollbar/vertical_thumb.png": _vline_bar(ACCENT + (220,), 6),
+        # Menu ornaments (screens.rpy): panels, rules, navigation marker, menu shade.
+        "vn/card_background.png": _card_image(DARK + (215,), 120, 45),
+        "vn/card_hover_background.png": _card_image((38, 31, 22, 235), 255, 140),
+        "vn/card_empty.png": _card_image(DARK + (120,), 55, 0),
+        "vn/rule.png": _rule_image(520, 18, 6),
+        "vn/rule_small.png": _rule_image(240, 14, 4),
+        "vn/nav_background.png": _solid((96, 8), (0, 0, 0, 0)),
+        "vn/nav_hover_background.png": _nav_marker(130),
+        "vn/nav_selected_background.png": _nav_marker(255),
+        "vn/nav_selected_hover_background.png": _nav_marker(255),
+        "vn/vignette.png": _vignette(),
+        "vn/hairline.png": _hairline(),
     }
     result = dict(base)
     for path, img in base.items():
-        result[f"phone/{path}"] = img
+        if not path.startswith("vn/"):  # ornaments are not looked up by variant prefix
+            result[f"phone/{path}"] = img
     return {f"gui/{path}": img for path, img in sorted(result.items())}
 
 
@@ -577,12 +935,46 @@ testsuite global:
 testcase default:
     $ _test.transition_timeout = 0.05
     $ _test.timeout = 30.0
+    $ preferences.text_cps = 0
     pause 1.0
-    click "Start"
+    # Actions, not label text: stock menu labels may be translated.
+    run Start()
+@@PICK@@    pause 1.0
+    # A save carries the scene title shown by the load screen.
+    run FileSave(1, confirm=False)
+    assert eval (FileJson(1, "vn_scene") is not None)
     advance until eval (e2e_state["end"]) timeout 900
     advance until screen "main_menu" timeout 60
-    assert eval (e2e_state["end"])
+@@MENUS@@    assert eval (e2e_state["end"])
 """
+
+
+def render_e2e(styles: dict[str, Any]) -> str:
+    """The playthrough testcase; with a style choice it also exercises the first-launch picker
+    (picking the last style, so the non-default switch branch is the one in use). Menus are
+    opened by action, not label, so the test also runs in a translation (RENPY_LANGUAGE)."""
+    pick = ""
+    if len(styles) > 1:
+        sid, cfg = list(styles.items())[-1]
+        pick = (
+            "    pause 1.0\n"
+            '    assert screen "vn_art_style_picker"\n'
+            f"    click {_plain_quote(cfg['label'])}\n"
+            f"    assert eval (persistent.art_style == {sid!r})\n"
+        )
+    menus = (
+        '    run ShowMenu("vn_credits")\n'
+        '    assert screen "vn_credits"\n'
+        "    run Return()\n"
+        '    assert screen "main_menu"\n'
+        '    run ShowMenu("vn_scene_select")\n'
+        '    assert screen "vn_scene_select"\n'
+        "    run Return()\n"
+        '    assert screen "main_menu"\n'
+    )
+    for screen in ("load", "preferences", "about"):
+        menus += f'    run ShowMenu("{screen}")\n    assert screen "{screen}"\n    run Return()\n'
+    return E2E_TESTCASE.replace("@@PICK@@", pick).replace("@@MENUS@@", menus)
 
 
 # --- static project files -----------------------------------------------------------------
@@ -603,6 +995,7 @@ def render_characters(work: Work) -> str:
             props.append(f"what_color={_plain_quote(color)}")
         if cid == "narrator":
             props.append("what_italic=True")
+        props += ['ctc="vn_ctc"', 'ctc_position="nestled"']
         adv = ", ".join([who, *props])
         nvl_props = ["kind=nvl", *props]
         if not name:
@@ -613,23 +1006,69 @@ def render_characters(work: Work) -> str:
     return "\n".join(out)
 
 
-def title_cards(work: Work, annotated: dict[str, Any]) -> dict[str, str]:
-    cards = {f"card_{sc['id']}": sc["heading"] for sc in annotated["scenes"]}
-    cards["card_end"] = work.data["work"].get("end_text", DEFAULT_END_TEXT)
+def title_cards(
+    work: Work, annotated: dict[str, Any], tags: dict[str, str] | None = None
+) -> dict[str, tuple[str, str | None]]:
+    """Image name -> (heading, optional subtitle line: place/time, from ``[[scenes]].subtitle``).
+
+    ``tags`` (scene ids -> ``{#id}`` tag) tell apart equal texts that translate differently."""
+    tags = tags or {}
+    subtitles = {sc["id"]: sc.get("subtitle") for sc in work.data.get("scenes", [])}
+    cards: dict[str, tuple[str, str | None]] = {}
+    for sc in annotated["scenes"]:
+        tag = f"{{#{tags[sc['id']]}}}" if sc["id"] in tags else ""
+        subtitle = subtitles.get(sc["id"])
+        cards[f"card_{sc['id']}"] = (sc["heading"] + tag, subtitle and subtitle + tag)
+    cards["card_end"] = (work.data["work"].get("end_text", DEFAULT_END_TEXT), None)
     return cards
 
 
-def render_images(entries: list[ImageEntry], cards: dict[str, str]) -> str:
+def _tagged(text: str) -> str:
+    """Escape markup, keeping a trailing ``{#...}`` disambiguation tag."""
+    match = re.search(r"\{#[^{}]*\}$", text)
+    if not match:
+        return escape_text(text)
+    return escape_text(text[: match.start()]) + match.group(0)
+
+
+def render_card(heading: str, subtitle: str | None) -> str:
+    """A spaced-out heading; with a subtitle, a thin gold rule and a smaller italic line below."""
+    props = "size=76, kerning=3, text_align=0.5, xmaximum=1600"
+    if not subtitle:
+        return f'Text("{_tagged(heading)}", {props})'
+    sub_props = 'size=34, italic=True, color="#c9a25b", text_align=0.5, xmaximum=1600'
+    return (
+        f'VBox(Text("{_tagged(heading)}", {props}, xalign=0.5), '
+        'Solid("#c9a25b", xsize=200, ysize=2, xalign=0.5), '
+        f'Text("{_tagged(subtitle)}", {sub_props}, xalign=0.5), spacing=26)'
+    )
+
+
+def render_image_entry(e: ImageEntry) -> str:
+    """Plain image, or a ConditionSwitch on ``persistent.art_style`` with the default last."""
+    default_rel = e.variants[0][1]
+    if len(e.variants) == 1:
+        return f"image {e.name} = {_plain_quote('images/' + default_rel)}"
+    parts = []
+    for style, rel, _ in e.variants[1:]:
+        parts.append(
+            f"{_plain_quote(f'persistent.art_style == {style!r}')}, {_plain_quote('images/' + rel)}"
+        )
+    parts.append(f'"True", {_plain_quote("images/" + default_rel)}')
+    return f"image {e.name} = ConditionSwitch({', '.join(parts)})"
+
+
+def render_images(entries: list[ImageEntry], cards: dict[str, tuple[str, str | None]]) -> str:
     out = ["## Generated by `vnpipe renpy`. Do not edit: regenerate instead.", ""]
-    for name, text in cards.items():  # title cards: plain images, not `show text`
-        out.append(f'image {name} = Text("{escape_text(text)}", size=60, text_align=0.5)')
-    for e in entries:
-        out.append(f"image {e.name} = {_plain_quote('images/' + e.rel)}")
+    for name, (heading, subtitle) in cards.items():  # title cards: plain images, not `show text`
+        out.append(f"image {name} = {render_card(heading, subtitle)}")
+    out.extend(render_image_entry(e) for e in entries)
     out.append("")
     return "\n".join(out)
 
 
-def _about(work: Work) -> str:
+def about_parts(work: Work) -> list[str]:
+    """Paragraphs of the About screen text."""
     info = work.data["work"]
     text_l, trans_l, tail = ABOUT_LABELS.get(info.get("language", "es"), ABOUT_LABELS["en"])
     parts = [info.get("subtitle", "")]
@@ -638,7 +1077,119 @@ def _about(work: Work) -> str:
     if info.get("translator"):
         parts.append(f"{trans_l}: {info['translator']}")
     parts.append(tail)
-    return "\\n\\n".join(escape_text(p) for p in parts if p)
+    return [p for p in parts if p]
+
+
+def _about(work: Work) -> str:
+    return "\\n\\n".join(escape_text(p) for p in about_parts(work))
+
+
+def ui_labels(work: Work) -> dict[str, str]:
+    return UI_LABELS.get(work.data["work"].get("language", "es"), UI_LABELS["en"])
+
+
+def _markup(text: str) -> str:
+    """Escape Ren'Py text markup only (for strings shown by `text`, not quoted in a script)."""
+    return text.replace("[", "[[").replace("{", "{{")
+
+
+def credit_tracks(work: Work) -> list[dict[str, Any]]:
+    """Tracks of ``<work>/audio/credits.toml`` whose file ships with the game."""
+    path = work.path("audio/credits.toml")
+    if not path.is_file():
+        return []
+    with path.open("rb") as fh:
+        tracks = tomllib.load(fh).get("track", [])
+    return [t for t in tracks if work.path(t["file"]).is_file()]
+
+
+def art_sources(manifest: dict[str, Any] | None) -> list[str]:
+    """Display names of the generators behind the shipped (non-placeholder) renditions."""
+    found = set()
+    for asset in (manifest or {}).get("assets", []):
+        for rendition in asset["renditions"].values():
+            source = rendition.get("source")
+            if source and source != "placeholder" and rendition["status"] != "placeholder":
+                found.add(ART_SOURCE_NAMES.get(source, source))
+    return sorted(found)
+
+
+def credits_sections(work: Work, manifest: dict[str, Any] | None) -> list[tuple[str, list[str]]]:
+    info = work.data["work"]
+    ui = ui_labels(work)
+    sections: list[tuple[str, list[str]]] = []
+    text = [info["author"]] if info.get("author") else []
+    if info.get("translator"):
+        text.append(f"{ui['translation']}: {info['translator']}")
+    gutenberg = work.data.get("source", {}).get("gutenberg_id")
+    if gutenberg:
+        text.append(
+            f"{ui['source']}: {ui['gutenberg'].format(id=gutenberg)}"
+            f" (https://www.gutenberg.org/ebooks/{gutenberg})"
+        )
+    if text:
+        sections.append((ui["text"], text))
+    sources = art_sources(manifest)
+    if sources:
+        sections.append((ui["art"], [ui["art_with"].format(", ".join(sources))]))
+    tracks = credit_tracks(work)
+    if tracks:  # attributions are printed verbatim (CC BY-SA requires them)
+        lang = info.get("language", "es")
+        # `attribution_<language>` is the same credit translated, used when present
+        sections.append(
+            (ui["music"], [t.get(f"attribution_{lang}") or t["attribution"] for t in tracks])
+        )
+    if voice_files(work) and work.data.get("voice", {}).get("credits"):
+        sections.append((ui["voices"], list(work.data["voice"]["credits"])))
+    about_tail = ABOUT_LABELS.get(info.get("language", "es"), ABOUT_LABELS["en"])[2]
+    sections.append(("vnpipe", [about_tail]))
+    return [(title, [_markup(e) for e in entries]) for title, entries in sections]
+
+
+def scene_menu_titles(
+    work: Work, annotated: dict[str, Any], tags: dict[str, str] | None = None
+) -> list[tuple[str, str]]:
+    """(label, title) per scene; a repeated heading gets its subtitle, else its number."""
+    tags = tags or {}
+    subtitles = {sc["id"]: sc.get("subtitle") for sc in work.data.get("scenes", [])}
+    headings = [sc["heading"] for sc in annotated["scenes"]]
+    seen: dict[str, int] = {}
+    result = []
+    for sc in annotated["scenes"]:
+        title = sc["heading"]
+        if headings.count(title) > 1:
+            seen[title] = seen.get(title, 0) + 1
+            title += f" ({subtitles.get(sc['id']) or seen[title]})"
+        tag = f"{{#{tags[sc['id']]} menu}}" if sc["id"] in tags else ""
+        result.append((f"scene_{sc['id']}", _markup(title) + tag))
+    return result
+
+
+def render_menu_data(
+    work: Work,
+    annotated: dict[str, Any],
+    manifest: dict[str, Any] | None,
+    tags: dict[str, str] | None = None,
+    credits_tl: dict[str, list[tuple[str, list[str]]]] | None = None,
+) -> str:
+    """Menu data; ``credits_tl`` holds the credits of each translation (Ren'Py language ->
+    sections), shown instead of ``vn_credits`` in that language."""
+
+    def py(value: Any) -> str:  # JSON strings are valid Python literals
+        return json.dumps(value, ensure_ascii=False)
+
+    subtitle = _markup(work.data["work"].get("subtitle", ""))
+    return "\n".join(
+        [
+            "## Generated by `vnpipe renpy`. Do not edit: regenerate instead.",
+            "",
+            f"define vn_subtitle = {py(subtitle)}",
+            f"define vn_scenes = {py(scene_menu_titles(work, annotated, tags))}",
+            f"define vn_credits = {py(credits_sections(work, manifest))}",
+            f"define vn_credits_tl = {py(credits_tl or {})}",
+            "",
+        ]
+    )
 
 
 def _substitute(text: str, values: dict[str, str]) -> str:
@@ -652,11 +1203,6 @@ def _substitute(text: str, values: dict[str, str]) -> str:
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8", newline="\n")
-
-
-def _audio_moods(out: Path) -> set[str]:
-    audio = out / "game" / "audio"
-    return {p.stem for p in audio.glob("*.ogg")} if audio.is_dir() else set()
 
 
 def generate(
@@ -675,16 +1221,37 @@ def generate(
     # GUI template: copy binaries, substitute tokens in .rpy files.
     menu_bg = MENU_BG_FALLBACK
     staging = work.data.get("staging", {})
-    first_bg = info.get("menu_bg") or next((c["bg"] for c in staging.values() if c.get("bg")), None)
+    first_bg = (
+        work.data.get("ui", {}).get("main_menu_bg")
+        or info.get("menu_bg")
+        or next((c["bg"] for c in staging.values() if c.get("bg")), None)
+    )
     if first_bg:
         menu_bg = bg_image_name(first_bg)
+    from vnpipe import renpy_tl  # imports this module
+
+    tls = renpy_tl.load_all(work, annotated)
+    tags = renpy_tl.collision_tags(work, annotated, tls) if tls else {}
+    styles, default_style = art_styles(manifest)
+    picker_title, picker_hint = ART_STYLE_LABELS.get(
+        info.get("language", "es"), ART_STYLE_LABELS["en"]
+    )
+    ui = ui_labels(work)
     values = {
+        "ART_STYLES": repr([(sid, cfg["label"]) for sid, cfg in styles.items()]),
+        "DEFAULT_STYLE": default_style,
+        "ART_STYLE_TITLE": picker_title,
+        "ART_STYLE_HINT": picker_hint,
         "TITLE": escape_text(info["title"]),
         "VERSION": "0.1",
         "ABOUT": _about(work),
         "BUILD_NAME": f"{info['id']}-vn",
         "SAVE_DIR": f"{info['id']}-vn",
         "MENU_BG": menu_bg,
+        "UI_SCENES": ui["scenes"],
+        "UI_CREDITS": ui["credits"],
+        "LOCKED": LOCKED_SCENE,
+        "LANGUAGES": repr(renpy_tl.languages(work, tls)),
     }
     written: list[Path] = []
     for src in sorted((TEMPLATE_DIR / "game").rglob("*")):
@@ -704,28 +1271,60 @@ def generate(
         if not dest.exists():  # never override an image shipped by the template
             img.save(dest, "PNG")
             written.append(dest)
+    written.extend(copy_audio(work, out))
+    written.extend(copy_voice(work, out))
+    written.extend(copy_translations(work, out))
     test_file = game / E2E_FILE
     test_file.unlink(missing_ok=True)
     if with_test:
-        write_text(test_file, E2E_TESTCASE)
+        write_text(test_file, render_e2e(styles))
         written.append(test_file)
+    records: dict[str, list[BoxRecord]] = {}
+    credits_tl = {
+        tl.language: renpy_tl.translated_credits(work, annotated, manifest, tl) for tl in tls
+    }
     for name, text in (
         ("characters.rpy", render_characters(work)),
-        ("images.rpy", render_images(entries, title_cards(work, annotated))),
-        ("script.rpy", render_script(work, annotated, _audio_moods(out))),
+        ("images.rpy", render_images(entries, title_cards(work, annotated, tags))),
+        ("menu_data.rpy", render_menu_data(work, annotated, manifest, tags, credits_tl)),
+        (
+            "script.rpy",
+            render_script(work, annotated, scan_audio(out), voice_files(work, annotated), records),
+        ),
     ):
         write_text(game / name, text)
         written.append(game / name)
+    for tl in tls:
+        tl_dir = game / "tl" / tl.language
+        shutil.rmtree(tl_dir, ignore_errors=True)
+        for name, text in (
+            (
+                "script.rpy",
+                renpy_tl.render_tl_script(
+                    tl, apply_overrides(work, annotated), records, lyric_voice(work), work.cast
+                ),
+            ),
+            (
+                "strings.rpy",
+                renpy_tl.render_tl_strings(
+                    tl, renpy_tl.string_pairs(work, annotated, manifest, tl, tags)
+                ),
+            ),
+        ):
+            write_text(tl_dir / name, text)
+            written.append(tl_dir / name)
 
     for e in entries:
-        dest = game / "images" / e.rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        written.append(dest)
-        if e.source:
-            shutil.copyfile(e.source, dest)
-        else:
-            placeholder(e.asset).save(dest, "WEBP", quality=90)
+        for _, rel, source in e.variants:
+            dest = game / "images" / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            written.append(dest)
+            if source:
+                shutil.copyfile(source, dest)
+            else:
+                placeholder(e.asset, label=False).save(dest, "WEBP", quality=90)
 
+    written.extend(write_android(work, out))
     return sorted(written)
 
 

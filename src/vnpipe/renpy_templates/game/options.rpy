@@ -46,7 +46,7 @@ define build.name = "@@BUILD_NAME@@"
 ## appropriate mixer.
 
 define config.has_sound = False
-define config.has_music = False
+define config.has_music = True
 define config.has_voice = True
 
 
@@ -119,7 +119,7 @@ define config.window_hide_transition = Dissolve(.2)
 ## Controls the default text speed. The default, 0, is infinite, while any other
 ## number is the number of characters per second to type out.
 
-default preferences.text_cps = 0
+default preferences.text_cps = 40
 
 
 ## The default auto-forward delay. Larger numbers lead to longer waits, with 0
@@ -143,6 +143,10 @@ default preferences.afm_time = 15
 ## literal string, not an expression.
 
 define config.save_directory = "@@SAVE_DIR@@"
+
+## Ren'Py Sync (cloud saves on a third-party server) is not offered.
+
+define config.has_sync = False
 
 
 ## Icon ########################################################################

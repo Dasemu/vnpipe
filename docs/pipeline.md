@@ -9,9 +9,9 @@ no code changes.
 Gutenberg .txt ──fetch──▶ data/raw/            (cached, gitignored)
               ──parse──▶ data/play.txt         (header/footer stripped, scope cut)
                          data/parsed.json      (scenes, speakers, verse lines, directions)
-              ──chunk──▶ annotations/chunks/*.json   (LLM work units)
-   LLM sub-agents ─────▶ annotations/cache/*.json    (one file per chunk, keyed by hash)
-              ──merge──▶ data/annotated.json   (schema-validated, complete)
+              ──chunks──▶ rendered text (LLM work units)
+     runner (Haiku) ─────▶ annotations/cache/*.txt     (records per chunk, keyed by hash)
+              ──merge──▶ data/annotated.json   (expanded and schema-validated)
 art (any generator) ──▶ assets/assets.json + images (manifest, sha256, status)
               ──renpy──▶ vn/                   (generated Ren'Py project)
 ```
@@ -26,8 +26,10 @@ redone unless their input changes.
 | Stage | Commands | Module |
 |---|---|---|
 | Text | `fetch`, `parse` | `text.py` |
-| Annotation | `annotate chunk/status/prompt/merge` ([details](annotation.md)) | `annotate.py` |
-| Assets | `assets prompt/import/process/status/placeholders/sheet` | `assets.py` |
+| Annotation | `annotate run/status/prompt/merge` ([details](annotation.md)) | `annotate.py` |
+| Assets | `assets prompt/import/process/check/status/placeholders/sheet/migrate` | `assets.py` |
+| Voice (optional) | `voice fetch/asr/build/cut` ([details](voice.md)) | `voice.py`, `voice_align.py` |
+| Translations (optional) | `translate fetch/build/status` ([details](translations.md)) | `translate.py`, `translate_align.py`, `renpy_tl.py` |
 | Ren'Py | `renpy [--from-parsed] [--with-test] [--out DIR]` | `renpy_gen.py` |
 
 `--work DIR` (before the subcommand) selects the work root; default is the current directory.
@@ -37,13 +39,14 @@ redone unless their input changes.
 | Path | Purpose |
 |---|---|
 | `src/vnpipe/` | Work-agnostic pipeline code |
-| `src/vnpipe/schemas/` | JSON Schemas: parsed text, annotation, annotated text, asset manifest |
-| `src/vnpipe/prompts/annotate.md` | Annotator instructions (its hash versions the cache) |
+| `src/vnpipe/schemas/` | JSON Schemas: parsed text, annotated text, asset manifest |
+| `src/vnpipe/prompts/annotate.md` | Annotator instructions and vocabularies (its hash versions the cache) |
 | `src/vnpipe/renpy_templates/` | Default Ren'Py GUI, screens and fonts |
+| `scripts/asr.py` | Standalone faster-whisper script run on a GPU host by `voice asr` |
 | `tests/` | Unit tests on `tests/fixtures/` (a mini work); the Ren'Py SDK tests need `RENPY_SDK` |
 
 ## Asset manifest
 
-`assets/assets.json` lists backgrounds and sprites with a status (`processed`, `approved`,
-`placeholder`, ...). Anything missing or unusable is replaced by a generated placeholder, so
+`assets/assets.json` (v2) declares art styles and lists backgrounds and sprites, each with
+one rendition per style and a status (`processed`, `approved`, `placeholder`, ...). Anything missing or unusable is replaced by a generated placeholder, so
 the game always runs.
