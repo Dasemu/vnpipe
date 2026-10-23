@@ -21,6 +21,7 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from vnpipe import PACKAGE_DIR
+from vnpipe.android import write_android
 from vnpipe.assets import load_manifest, placeholder, style_file, usable_rendition
 from vnpipe.config import Work, load_work
 from vnpipe.schema import validate
@@ -1323,6 +1324,7 @@ def generate(
             else:
                 placeholder(e.asset, label=False).save(dest, "WEBP", quality=90)
 
+    written.extend(write_android(work, out))
     return sorted(written)
 
 

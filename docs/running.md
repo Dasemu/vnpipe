@@ -151,6 +151,18 @@ python3 -m http.server -d build/web 8000     # then open http://localhost:8000
 "$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher distribute vn --package linux --destination build/dist
 ```
 
+```sh
+# Android APK (needs the `[android]` table in work.toml, RAPT in the SDK and JDK 21)
+"$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher android_build vn --destination build/dist
+```
+
+RAPT (https://www.renpy.org/dl/<version>/renpy-<version>-rapt.zip) is unzipped into the SDK
+folder, and its Android SDK is installed once with `python android.py installsdk` run from
+`rapt/` using the SDK's own Python with the SDK folder on `sys.path` (it asks to accept
+Google's Android SDK licence). The first build creates `vn/android.keystore` and
+`vn/bundle.keystore`: back them up, keep them out of git and reuse the same ones for every
+release, or installed apps cannot be updated.
+
 `--package` also accepts `win` and `mac`; omit it to build every package. The web build
 also leaves a `build/web.zip` next to the folder. A web build writes
 `vn/progressive_download.txt`; delete it (it is not part of the generated project).
