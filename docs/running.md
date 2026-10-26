@@ -2,21 +2,25 @@
 
 The Ren'Py project in `<work>/vn/` is generated; never edit it by hand. Commands below run
 from the work root (the directory with `work.toml`); `RENPY_SDK` is the SDK directory
-(e.g. `export RENPY_SDK=/path/to/renpy-sdk`).
+(e.g. `export RENPY_SDK=/absolute/path/to/renpy-sdk`).
+Examples use Bash on Linux x86-64; other hosts need their SDK launcher and bundled Python.
+Install the work's locked dependencies first (`uv sync --locked`). A sibling vnpipe
+checkout is not required. For a complete clean-clone example, see the
+[faust-vn guide](https://github.com/Dasemu/faust-vn/blob/main/docs/running.md).
 
 ## 1. Ren'Py SDK
 
 The SDK is not committed. Install **Ren'Py 8.5.3** (SDK
-archive from <https://www.renpy.org/latest.html>, `renpy-8.5.3-sdk.tar.bz2`) so that
+archive from <https://www.renpy.org/dl/8.5.3/>, `renpy-8.5.3-sdk.tar.bz2`) so that
 `$RENPY_SDK/renpy.sh` exists:
 
 ```sh
 tar -xjf renpy-8.5.3-sdk.tar.bz2 && mv renpy-8.5.3-sdk "$RENPY_SDK"
 ```
 
-The SDK already contains the web runtime (`$RENPY_SDK/web`) and the Linux, Windows
-and macOS distribution templates. Inside the sandbox set `HOME=$TMPDIR/renpy-home` for
-SDK commands, since Ren'Py writes to `~/.renpy`.
+The SDK provides desktop distribution templates. For web, download
+<https://www.renpy.org/dl/8.5.3/renpy-8.5.3-web.zip> and unzip it into
+`"$RENPY_SDK"` so that `"$RENPY_SDK/web"` exists. RAPT is a separate add-on (below).
 
 ## 2. Regenerate the project
 
@@ -27,10 +31,10 @@ uv run vnpipe renpy --out some/dir  # default output: <work>/vn
 ```
 
 Generation is deterministic: running it twice gives identical files (no timestamps).
-It rewrites `game/{options,gui,screens,support,styles,characters,images,script}.rpy`,
-`game/gui/`, `game/fonts/` and `game/images/`; anything else (for example `game/audio/`)
-is left alone. Music only appears in the script for moods that have a matching
-`game/audio/<mood>.ogg`, so drop files there and regenerate.
+It rewrites the generated scripts, GUI, fonts and images. When the work has an
+`audio/` directory, its Ogg files are copied into `vn/game/audio/`.
+Keep audio sources in the work's `audio/` directory, not the generated output;
+configure music and credits in `work.toml` and `audio/credits.toml`.
 
 Images come from `assets/assets.json` (see "Art styles" below); anything missing or
 unusable is replaced by a generated placeholder so the game always runs. The generator also
@@ -85,7 +89,7 @@ edited minimally (dark palette, ivory text, accent `#c9a25b`, Roboto Slab font, 
 tweaks, `@@TOKEN@@` placeholders for title/build name/about text/menu background):
 
 ```sh
-"$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher generate_gui OUT --width 1920 --height 1080 \
+"$RENPY_SDK"/renpy.sh "$RENPY_SDK/launcher" generate_gui OUT --width 1920 --height 1080 \
   --accent '#c9a25b' --boring '#14110e' --template "$RENPY_SDK/gui" --start
 ```
 
@@ -108,7 +112,7 @@ documentation assets.
 ## 3. Lint
 
 ```sh
-HOME=$TMPDIR/renpy-home "$RENPY_SDK"/renpy.sh vn lint
+"$RENPY_SDK"/renpy.sh vn lint
 ```
 
 The expected result is a statistics block with no warnings above it.
@@ -125,7 +129,7 @@ up in `vn/` or in a build:
 
 ```sh
 uv run vnpipe renpy --with-test --out build/e2e
-HOME=$TMPDIR/renpy-home SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RENPY_RENDERER=sw \
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RENPY_RENDERER=sw \
   "$RENPY_SDK"/renpy.sh build/e2e test
 ```
 
@@ -144,24 +148,41 @@ video driver); matrix tints are therefore not rendered but all game logic is exe
 
 ```sh
 # Web (HTML5)
-"$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher web_build vn --destination build/web
-python3 -m http.server -d build/web 8000     # then open http://localhost:8000
+"$RENPY_SDK"/renpy.sh "$RENPY_SDK/launcher" web_build vn --destination build/web
+rm -f vn/progressive_download.txt
+uv run python -m http.server --bind 127.0.0.1 --directory build/web 8000     # then open http://localhost:8000
 
 # Linux desktop
-"$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher distribute vn --package linux --destination build/dist
+"$RENPY_SDK"/renpy.sh "$RENPY_SDK/launcher" distribute vn --package linux --destination build/dist
 ```
 
 ```sh
 # Android APK (needs the `[android]` table in work.toml, RAPT in the SDK and JDK 21)
-"$RENPY_SDK"/renpy.sh $RENPY_SDK/launcher android_build vn --destination build/dist
+"$RENPY_SDK"/renpy.sh "$RENPY_SDK/launcher" android_build vn --destination build/dist
 ```
 
-RAPT (https://www.renpy.org/dl/<version>/renpy-<version>-rapt.zip) is unzipped into the SDK
-folder, and its Android SDK is installed once with `python android.py installsdk` run from
-`rapt/` using the SDK's own Python with the SDK folder on `sys.path` (it asks to accept
-Google's Android SDK licence). The first build creates `vn/android.keystore` and
-`vn/bundle.keystore`: back them up, keep them out of git and reuse the same ones for every
-release, or installed apps cannot be updated.
+Use JDK 21 (`JAVA_HOME` and `PATH`) and ASCII-only absolute paths for the work and SDK.
+Install RAPT and the Android SDK once:
+
+```bash
+curl -fsSL -o /tmp/vnpipe-rapt.zip https://www.renpy.org/dl/8.5.3/renpy-8.5.3-rapt.zip
+unzip -q /tmp/vnpipe-rapt.zip -d "$RENPY_SDK"
+(
+  cd "$RENPY_SDK/rapt"
+  ../lib/py3-linux-x86_64/python -c '
+import runpy, sys
+sys.path[:0] = [".."]
+sys.argv = ["android.py", "installsdk"]
+runpy.run_path("android.py", run_name="__main__")
+'
+)
+```
+
+Review and accept the Android SDK licences when prompted, then run `android_build`
+above. For updates, restore the original `vn/android.keystore` and `vn/bundle.keystore`
+before building. A first independent build creates keys when absent: back them up,
+keep them out of git and reuse them for every update. Transfer the resulting APK
+from `build/dist` to the device and install it with permission for that installation source.
 
 `--package` also accepts `win` and `mac`; omit it to build every package. The web build
 also leaves a `build/web.zip` next to the folder. A web build writes
